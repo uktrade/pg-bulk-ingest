@@ -9,7 +9,7 @@ A collection of Python utility functions for ingesting data into SQLAlchemy-defi
 
 The API is made of 3 functions:
 
-- `overwrite` - deletes all existing data in the table before ingesting the incoming data
+- `replace` - replaces all the data in the table with the incoming data
 - `append` - appends all incoming data to the table
 - `upsert` - inserts the incoming data into the table, but if a primary key matches an existing row, updates the existing row
 
