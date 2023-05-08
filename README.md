@@ -21,10 +21,11 @@ In each case:
 - Ingestion is done exclusively with `COPY FROM`.
 - `VACUUM ANALYZE` is run at the end of the ingest.
 
+For example to `upsert`:
 
 ```python
 import sqlalchemy as sa
-from pg_bulk_ingest import merge
+from pg_bulk_ingest import upsert
 
 # Run postgresql locally should allow the below to run
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
@@ -45,5 +46,5 @@ my_table = sa.Table(
     schema="my_schema",
 )
 with engine.begin() as conn:
-    merge(conn, my_table, ((row, my_table) for row in rows))
+    upsert(conn, my_table, ((row, my_table) for row in rows))
 ```
