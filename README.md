@@ -11,7 +11,7 @@ The API is made of 3 functions:
 
 - `replace` - replaces all the existing rows in the table with the incoming rows
 - `insert` - inserts the incoming rows into the table, leaving existing rows alone
-- `upsert` - inserts the incoming data into the table, but if a primary key matches an existing row, updates the existing row
+- `upsert` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row
 
 In each case:
 
