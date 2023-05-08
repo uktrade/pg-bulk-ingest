@@ -9,8 +9,8 @@ A collection of Python utility functions for ingesting data into SQLAlchemy-defi
 
 The API is made of 3 functions:
 
-- `replace` - replaces all the existing data in the table with the incoming data
-- `append` - appends all incoming data to the existing data in the table
+- `replace` - replaces all the existing rows in the table with the incoming rows
+- `insert` - inserts the incoming rows into the table, leaving existing rows alone
 - `upsert` - inserts the incoming data into the table, but if a primary key matches an existing row, updates the existing row
 
 In each case:
