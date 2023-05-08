@@ -19,6 +19,7 @@ In each case:
 - Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table.
 - If it's not possible to not exclusively lock the table, then an intermediate table is used, swapped with the live table at the end of the ingest. This does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
 - Ingestion is done exclusively with `COPY FROM`.
+- `VACUUM ANALYZE` is run at the end of the ingest.
 
 
 ```python
