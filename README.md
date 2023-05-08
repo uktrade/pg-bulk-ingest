@@ -16,7 +16,7 @@ The API is made of 3 functions:
 In each case:
 
 - Ingestion happens in a transaction - it is all ingested or none at all
-- Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table.
+- Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries
 - If there is no known technique for a migration without an exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
 - Ingestion is done exclusively with `COPY FROM`.
 - `VACUUM ANALYZE` is run at the end of the ingest.
