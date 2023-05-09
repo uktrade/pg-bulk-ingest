@@ -29,8 +29,15 @@ def upsert(conn, metadata, rows):
     metadata.create_all(conn, tables=intermediate_tables)
 
     # Insert rows into just the first intermediate table
-    for row, table in rows:
-        pass
+    first_table = intermediate_tables[0]
+    with \
+            conn.connection.driver_connection.cursor() as cursor, \
+            cursor.copy(str(bind_identifiers("COPY {}.{} FROM STDIN", first_table.schema, first_table.name))) as copy:
+
+        for row, table in rows:
+            if table is not first_table:
+                pass
+            copy.write_row(row)
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
