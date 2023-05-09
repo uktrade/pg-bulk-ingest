@@ -38,8 +38,10 @@ rows = (
 )
 
 # A SQLAlchemy table definition
+metadata_obj = sa.MetaData()
 my_table = sa.Table(
     "my_table",
+    metadata_obj,
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("value", sa.String(16), nullable=False),
     schema="my_schema",
