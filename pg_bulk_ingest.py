@@ -11,15 +11,22 @@ def upsert(conn, table, rows):
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    table_name = uuid.uuid4().hex
+    intermediate_table_name = uuid.uuid4().hex
+    intermediate_table = sa.Table(
+        intermediate_table_name,
+        table.metadata,
+        *(
+            sa.Column(column.name, column.type, primary_key=column.primary_key)
+            for column in table.columns
+        ),
+        schema=table.schema
+    )
 
     # Create an intermediate table like table
     conn.execute(bind_identifiers('''
         CREATE SCHEMA IF NOT EXISTS {}
     ''', table.schema))
-    conn.execute(bind_identifiers('''
-        CREATE TABLE {}.{}(id int)
-    ''', table.schema, table_name))
+    table.metadata.create_all(conn, tables=(intermediate_table,))
 
     # Insert rows into that intermediate table
 
@@ -27,6 +34,4 @@ def upsert(conn, table, rows):
     # ON CONFLICT to update any existing rows
 
     # Drop the intermediate table
-    conn.execute(bind_identifiers('''
-        DROP TABLE {}.{}
-    ''', table.schema, table_name))
+    table.metadata.drop_all(conn, tables=(intermediate_table,))
