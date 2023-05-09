@@ -37,7 +37,7 @@ rows = (
     (5, 'q'),
 )
 
-# A SQLAlchemy table definition
+# Collection of SQLAlchemy table definitions - a "Metadata"
 metadata_obj = sa.MetaData()
 my_table = sa.Table(
     "my_table",
@@ -47,5 +47,5 @@ my_table = sa.Table(
     schema="my_schema",
 )
 with engine.begin() as conn:
-    upsert(conn, my_table, ((row, my_table) for row in rows))
+    upsert(conn, metadata_obj, ((row, my_table) for row in rows))
 ```

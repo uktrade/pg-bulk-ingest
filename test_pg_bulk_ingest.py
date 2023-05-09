@@ -4,7 +4,7 @@ from pg_bulk_ingest import upsert
 
 
 def test():
-    engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
+    engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/', echo=True)
 
     rows = (
         (3, 'd'),
@@ -18,7 +18,7 @@ def test():
         metadata_obj,
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("value", sa.String(16), nullable=False),
-        schema="my_schema",
+        schema="my_schema_other",
     )
     with engine.begin() as conn:
-        upsert(conn, my_table, ((row, my_table) for row in rows))
+        upsert(conn, metadata_obj, ((row, my_table) for row in rows))
