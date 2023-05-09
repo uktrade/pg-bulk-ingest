@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pg-bulk-ingest"
+version = "0.0.0"
+authors = [
+  { name="Department for International Trade", email="sre@digital.trade.gov.uk" },
+]
+description = "A collection of Python utility functions for ingesting data into SQLAlchemy-defined PostgreSQL tables, automatically migrating them as needed, and minimising locking"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "sqlalchemy>=2.0.12",
+    "psycopg[binary]>=3.1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.2.1",
+]
+
+[project.urls]
+"Source" = "https://github.com/uktrade/pg-bulk-ingest"
+
+[tool.hatch.build]
+include = [
+  "pg_bulk_ingest.py"
+]
