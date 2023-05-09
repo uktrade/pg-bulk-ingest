@@ -28,7 +28,9 @@ def upsert(conn, metadata, rows):
         ''', intermediate_table.schema))
     metadata.create_all(conn, tables=intermediate_tables)
 
-    # Insert rows into that intermediate table
+    # Insert rows into just the first intermediate table
+    for row, table in rows:
+        pass
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
