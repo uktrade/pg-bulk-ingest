@@ -13,6 +13,7 @@ jobs:
           python-version: 3.11
 
       - run: |
+          pip install build
           python -m build
 
       - uses: actions/upload-artifact@v3
