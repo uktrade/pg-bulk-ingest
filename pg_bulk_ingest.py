@@ -42,14 +42,19 @@ def upsert(conn, metadata, rows):
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
-    primary_keys = tuple(column.name for column in first_table.columns if column.primary_key)
-    primary_keys_fragment = sql.SQL(',').join((sql.Identifier(primary_key) for primary_key in primary_keys)) 
-    insert_fragment = sql.SQL('INSERT INTO {}.{}').format(sql.Identifier(first_table.schema), sql.Identifier(first_table.name))
-    select_fragment = sql.SQL('SELECT DISTINCT ON({}) * FROM {}.{}').format(primary_keys_fragment, sql.Identifier(first_intermediate_table.schema), sql.Identifier(first_intermediate_table.name))
-    on_conflict_fragment = sql.SQL('ON CONFLICT(') + primary_keys_fragment + sql.SQL(')')
-    do_update_fragment = sql.SQL('DO UPDATE SET') + sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in first_table.columns)
-    insert_query = insert_fragment + select_fragment + on_conflict_fragment + do_update_fragment
-
+    insert_query = sql.SQL('''
+        INSERT INTO {schema}.{table}
+        SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{intermediate_table}
+        ON CONFLICT({primary_keys})
+        DO UPDATE SET {updates}
+    ''').format(
+        schema=sql.Identifier(first_table.schema),
+        table=sql.Identifier(first_table.name),
+        intermediate_schema=sql.Identifier(first_intermediate_table.schema),
+        intermediate_table=sql.Identifier(first_intermediate_table.name),      
+        primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in first_table.columns if column.primary_key)),
+        updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in first_table.columns),
+    )
     conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
     # Drop the intermediate table
