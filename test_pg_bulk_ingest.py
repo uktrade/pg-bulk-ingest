@@ -1,6 +1,6 @@
 import uuid
 
-from psycopg import sql
+from psycopg2 import sql
 import sqlalchemy as sa
 
 from pg_bulk_ingest import upsert
@@ -14,7 +14,7 @@ def test():
         ).as_string(conn.connection.driver_connection))
 
     table_name = "my_table_" + uuid.uuid4().hex
-    engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
+    engine = sa.create_engine('postgresql+psycopg2://postgres@127.0.0.1:5432/')
 
     rows = (
         (3, 'd'),
