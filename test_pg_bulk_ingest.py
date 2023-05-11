@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from psycopg2 import sql
 import sqlalchemy as sa
@@ -17,9 +18,9 @@ def test():
     engine = sa.create_engine('postgresql+psycopg2://postgres@127.0.0.1:5432/')
 
     rows = (
-        (3, 'd'),
-        (4, 'a'),
-        (5, 'q'),
+        (3, 'd', date(2023, 1, 1)),
+        (4, 'a', date(2023, 1, 2)),
+        (5, 'q', date(2023, 1, 3)),
     )
 
     metadata_obj = sa.MetaData()
@@ -28,6 +29,7 @@ def test():
         metadata_obj,
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("value", sa.String(16), nullable=False),
+        sa.Column("date", sa.Date, nullable=False),
         schema="my_schema_other",
     )
     with engine.begin() as conn:
@@ -36,12 +38,12 @@ def test():
     with engine.begin() as conn:
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id', table_name)).fetchall()
 
-    assert results == [(3, 'd'), (4, 'a'), (5, 'q')]
+    assert results == [(3, 'd', date(2023, 1, 1)), (4, 'a', date(2023, 1, 2)), (5, 'q', date(2023, 1, 3))]
 
     rows = (
-        (5, 'X'),
-        (6, 'a'),
-        (7, 'q'),
+        (5, 'X', date(2023, 1, 4)),
+        (6, 'a', date(2023, 1, 5)),
+        (7, 'q', date(2023, 1, 6)),
     )
 
     with engine.begin() as conn:
@@ -50,4 +52,10 @@ def test():
     with engine.begin() as conn:
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id', table_name)).fetchall()
 
-    assert results == [(3, 'd'), (4, 'a'), (5, 'X'), (6, 'a'), (7, 'q')]
+    assert results == [
+        (3, 'd', date(2023, 1, 1)), 
+        (4, 'a', date(2023, 1, 2)),         
+        (5, 'X', date(2023, 1, 4)),
+        (6, 'a', date(2023, 1, 5)),
+        (7, 'q', date(2023, 1, 6)),
+    ]
