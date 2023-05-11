@@ -33,12 +33,13 @@ def upsert(conn, metadata, rows):
 
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
+    converters = tuple(get_converter(column.type) for column in first_intermediate_table.columns)
     def db_rows():
         for row, table in rows:
             if table is not first_table:
                 continue
-            yield '\t'.join(get_converter(column.type)(field) for (field,column) in zip(row, table.columns))+'\n'
-            
+            yield '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
+
     with conn.connection.driver_connection.cursor() as cursor:
         cursor.copy_expert(str(bind_identifiers("COPY {}.{} FROM STDIN", first_intermediate_table.schema, first_intermediate_table.name)), to_file_like_obj(db_rows(), str), size=65536)
 
