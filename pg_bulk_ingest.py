@@ -86,9 +86,10 @@ def upsert(conn, metadata, rows):
     null = '\\N'
 
     first_table = next(iter(metadata.tables.values()))
+    intermediate_metadata_obj = sa.MetaData()
     intermediate_tables = tuple(sa.Table(
         uuid.uuid4().hex,
-        metadata,
+        intermediate_metadata_obj,
         *(
             sa.Column(column.name, column.type, primary_key=column.primary_key)
             for column in table.columns
@@ -102,6 +103,7 @@ def upsert(conn, metadata, rows):
             CREATE SCHEMA IF NOT EXISTS {}
         ''', intermediate_table.schema))
     metadata.create_all(conn)
+    intermediate_metadata_obj.create_all(conn)
 
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
@@ -134,4 +136,4 @@ def upsert(conn, metadata, rows):
     conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
     # Drop the intermediate table
-    metadata.drop_all(conn, tables=intermediate_tables)
+    intermediate_metadata_obj.drop_all(conn)

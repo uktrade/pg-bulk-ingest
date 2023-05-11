@@ -59,3 +59,5 @@ def test():
         (6, 'a', date(2023, 1, 5)),
         (7, 'q', date(2023, 1, 6)),
     ]
+
+    assert len(metadata_obj.tables) == 1
