@@ -13,6 +13,78 @@ def upsert(conn, metadata, rows):
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
+    def to_file_like_obj(iterable, base):
+        chunk = base()
+        offset = 0
+        it = iter(iterable)
+
+        def up_to_iter(size):
+            nonlocal chunk, offset
+
+            while size:
+                if offset == len(chunk):
+                    try:
+                        chunk = next(it)
+                    except StopIteration:
+                        break
+                    else:
+                        offset = 0
+                to_yield = min(size, len(chunk) - offset)
+                offset = offset + to_yield
+                size -= to_yield
+                yield chunk[offset - to_yield : offset]
+
+        class FileLikeObj(IOBase):
+            def readable(self):
+                return True
+
+            def read(self, size=-1):
+                return base().join(
+                    up_to_iter(float('inf') if size is None or size < 0 else size)
+                )
+
+        return FileLikeObj()
+
+    def get_converter(sa_type):
+        if isinstance(sa_type, sa.Integer):
+            return lambda v: (null if v is None else str(int(v)))
+        elif isinstance(sa_type, sa.JSON):
+            return lambda v: (null if v is None else escape_string(json.dumps(v)))
+        elif isinstance(sa_type, sa.ARRAY):
+            return lambda v: (
+                null
+                if v is None
+                else escape_string(
+                    '{'
+                    + (
+                        ','.join(
+                            (
+                                'NULL'
+                                if item is None
+                                else ('"' + escape_array_item(str(item)) + '"')
+                            )
+                            for item in v
+                        )
+                    )
+                    + '}',
+                )
+            )
+        else:
+            return lambda v: (null if v is None else escape_string(str(v)))
+
+    def escape_array_item(text):
+        return text.replace('\\', '\\\\').replace('"', '\\"')
+
+    def escape_string(text):
+        return (
+            text.replace('\\', '\\\\')
+            .replace('\n', '\\n')
+            .replace('\r', '\\r')
+            .replace('\t', '\\t')
+        )
+
+    null = '\\N'
+
     first_table = next(iter(metadata.tables.values()))
     intermediate_tables = tuple(sa.Table(
         uuid.uuid4().hex,
@@ -63,76 +135,3 @@ def upsert(conn, metadata, rows):
 
     # Drop the intermediate table
     metadata.drop_all(conn, tables=intermediate_tables)
-
-def to_file_like_obj(iterable, base):
-    chunk = base()
-    offset = 0
-    it = iter(iterable)
-
-    def up_to_iter(size):
-        nonlocal chunk, offset
-
-        while size:
-            if offset == len(chunk):
-                try:
-                    chunk = next(it)
-                except StopIteration:
-                    break
-                else:
-                    offset = 0
-            to_yield = min(size, len(chunk) - offset)
-            offset = offset + to_yield
-            size -= to_yield
-            yield chunk[offset - to_yield : offset]
-
-    class FileLikeObj(IOBase):
-        def readable(self):
-            return True
-
-        def read(self, size=-1):
-            return base().join(
-                up_to_iter(float('inf') if size is None or size < 0 else size)
-            )
-
-    return FileLikeObj()
-
-def get_converter(sa_type):
-    if isinstance(sa_type, sa.Integer):
-        return lambda v: (null if v is None else str(int(v)))
-    elif isinstance(sa_type, sa.JSON):
-        return lambda v: (null if v is None else escape_string(json.dumps(v)))
-    elif isinstance(sa_type, sa.ARRAY):
-        return lambda v: (
-            null
-            if v is None
-            else escape_string(
-                '{'
-                + (
-                    ','.join(
-                        (
-                            'NULL'
-                            if item is None
-                            else ('"' + escape_array_item(str(item)) + '"')
-                        )
-                        for item in v
-                    )
-                )
-                + '}',
-            )
-        )
-    else:
-        return lambda v: (null if v is None else escape_string(str(v)))
-    
-def escape_array_item(text):
-    return text.replace('\\', '\\\\').replace('"', '\\"')
-
-def escape_string(text):
-    return (
-        text.replace('\\', '\\\\')
-        .replace('\n', '\\n')
-        .replace('\r', '\\r')
-        .replace('\t', '\\t')
-    )
-
-null = '\\N'
-
