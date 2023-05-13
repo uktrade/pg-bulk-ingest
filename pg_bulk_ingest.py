@@ -2,8 +2,17 @@ import uuid
 
 import sqlalchemy as sa
 import json
-from psycopg2 import sql
 from io import IOBase
+
+try:
+    from psycopg2 import sql as sql2
+except ImportError:
+    sql2 = None
+
+try:
+    from psycopg import sql as sql3
+except ImportError:
+    sql3 = None
 
 
 def upsert(conn, metadata, rows):
@@ -83,7 +92,26 @@ def upsert(conn, metadata, rows):
             .replace('\t', '\\t')
         )
 
+    # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
+    # COPY ... FROM STDIN API via write_row that handles escaping,
+    # but for consistency with Psycopg 2 we don't use it
+    def copy_from_stdin2(cursor, query, f):
+        cursor.copy_expert(query, f, size=65536)
+
+    def copy_from_stdin3(cursor, query, f):
+        with cursor.copy(query) as copy:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                copy.write(chunk)
+
     null = '\\N'
+
+    sql, copy_from_stdin = {
+        'psycopg2': (sql2, copy_from_stdin2),
+        'psycopg': (sql3, copy_from_stdin3),
+    }[conn.engine.driver]
 
     first_table = next(iter(metadata.tables.values()))
     intermediate_metadata = sa.MetaData()
@@ -115,8 +143,7 @@ def upsert(conn, metadata, rows):
             yield '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
 
     with conn.connection.driver_connection.cursor() as cursor:
-        cursor.copy_expert(str(bind_identifiers("COPY {}.{} FROM STDIN", first_intermediate_table.schema, first_intermediate_table.name)), to_file_like_obj(db_rows(), str), size=65536)
-
+        copy_from_stdin(cursor, str(bind_identifiers("COPY {}.{} FROM STDIN", first_intermediate_table.schema, first_intermediate_table.name)), to_file_like_obj(db_rows(), str))
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows

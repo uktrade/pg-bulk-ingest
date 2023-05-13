@@ -1,8 +1,16 @@
 import uuid
 from datetime import date
 
-from psycopg2 import sql
 import sqlalchemy as sa
+
+try:
+    # psycopg3
+    from psycopg import sql
+    engine_type = 'postgresql+psycopg'
+except ImportError:
+    # psycopg2
+    from psycopg2 import sql
+    engine_type = 'postgresql+psycopg2'
 
 from pg_bulk_ingest import upsert
 
@@ -15,7 +23,7 @@ def test():
         ).as_string(conn.connection.driver_connection))
 
     table_name = "my_table_" + uuid.uuid4().hex
-    engine = sa.create_engine('postgresql+psycopg2://postgres@127.0.0.1:5432/')
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/')
 
     rows = (
         (3, 'd', date(2023, 1, 1)),
