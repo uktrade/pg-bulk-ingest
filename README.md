@@ -39,14 +39,14 @@ rows = (
 )
 
 # Collection of SQLAlchemy table definitions - a "Metadata"
-metadata_obj = sa.MetaData()
+metadata = sa.MetaData()
 my_table = sa.Table(
     "my_table",
-    metadata_obj,
+    metadata,
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("value", sa.String(16), nullable=False),
     schema="my_schema",
 )
 with engine.begin() as conn:
-    upsert(conn, metadata_obj, ((row, my_table) for row in rows))
+    upsert(conn, metadata, ((row, my_table) for row in rows))
 ```
