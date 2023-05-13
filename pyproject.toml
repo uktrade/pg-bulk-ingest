@@ -21,6 +21,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+psycopg2 = [
+    "psycopg2>=2.9.2",
+    "sqlalchemy>=1.4.24",
+]
+psycopg2-binary = [
+    "psycopg2-binary>=2.9.2",
+    "sqlalchemy>=1.4.24",
+]
+psycopg = [
+    "psycopg>=3.1.4",
+    "sqlalchemy>=2.0.0",
+]
+psycopg-binary = [
+    "psycopg[binary]>=3.1.4",
+    "sqlalchemy>=2.0.0",
+]
 dev = [
     "psycopg>=3.1.4",
     "psycopg2>=2.9.2",

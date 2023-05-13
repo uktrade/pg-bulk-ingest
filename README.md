@@ -5,6 +5,20 @@ A collection of Python utility functions for ingesting data into SQLAlchemy-defi
 > Work-in-progress. This README serves as a rough design spec
 
 
+## Installation
+
+Installation depends on which underlying psycopg driver you would like to use. Binary and non-binary versions of both psycopg2 and Psycopg 3 are supported.
+
+```
+pip install pg-bulk-ingest[psycopg2]         # psycopg2
+pip install pg-bulk-ingest[psycopg2-binary]  # psycopg2-binary
+pip install pg-bulk-ingest[psycopg]          # psycopg (Psycopg 3)
+pip install pg-bulk-ingest[psycopg-binary].  # psycopg[binary] (Psycopg 3)
+```
+
+This is more complex than is ideal because psycopg2 and Psycopg 3 are published as different packages in PyPI, as are their binary versions, and because SQLAlchemy < 2 doesn't support psycopg2.
+
+
 ## Usage
 
 The API is made of 3 functions:

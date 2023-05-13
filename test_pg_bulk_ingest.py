@@ -4,13 +4,13 @@ from datetime import date
 import sqlalchemy as sa
 
 try:
-    # psycopg3
-    from psycopg import sql
-    engine_type = 'postgresql+psycopg'
-except ImportError:
     # psycopg2
     from psycopg2 import sql
     engine_type = 'postgresql+psycopg2'
+except ImportError:
+    # psycopg3
+    from psycopg import sql
+    engine_type = 'postgresql+psycopg'
 
 from pg_bulk_ingest import upsert
 
