@@ -17,13 +17,29 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "sqlalchemy>=1.4.0,<2.0.0", 
+    "sqlalchemy>=1.4.24", 
 ]
 
 [project.optional-dependencies]
 dev = [
+    "psycopg>=3.1.4",
+    "psycopg2>=2.9.2",
     "pytest>=7.2.1",
-    "psycopg2-binary>=2.8.6",
+]
+ci = [
+    "pytest==7.2.1",
+]
+ci-psycopg2-sqlalchemy1 = [
+    "psycopg2==2.9.2",
+    "sqlalchemy==1.4.24",
+]
+ci-psycopg2-sqlalchemy2 = [
+    "psycopg2==2.9.2",
+    "sqlalchemy==2.0.0",
+]
+ci-psycopg3-sqlalchemy2 = [
+    "psycopg==3.1.4",
+    "sqlalchemy==2.0.0",
 ]
 
 [project.urls]
