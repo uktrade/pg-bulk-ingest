@@ -5,6 +5,15 @@ A collection of Python utility functions for ingesting data into SQLAlchemy-defi
 > Work-in-progress. This README serves as a rough design spec
 
 
+## Installation
+
+`pg-bulk-ingest` can be installed from  PyPI using `pip`. `psycopg2` or `psycopg` (Psycopg 3) must also be explicitly installed.
+
+```
+pip install pg-bulk-ingest psycopg
+```
+
+
 ## Usage
 
 The API is made of 3 functions:
