@@ -46,7 +46,11 @@ def test():
     with engine.begin() as conn:
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id', table_name)).fetchall()
 
-    assert results == [(3, 'd', date(2023, 1, 1)), (4, 'a', date(2023, 1, 2)), (5, 'q', date(2023, 1, 3))]
+    assert results == [
+        (3, 'd', date(2023, 1, 1)),
+        (4, 'a', date(2023, 1, 2)),
+        (5, 'q', date(2023, 1, 3)),
+    ]
 
     rows = (
         (5, 'X', date(2023, 1, 4)),
