@@ -25,12 +25,6 @@ def test():
     table_name = "my_table_" + uuid.uuid4().hex
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/')
 
-    rows = (
-        (3, 4, 'd', date(2023, 1, 1)),
-        (4, 5, 'a', date(2023, 1, 2)),
-        (5, 6, 'q', date(2023, 1, 3)),
-    )
-
     metadata_obj = sa.MetaData()
     my_table = sa.Table(
         table_name,
@@ -41,8 +35,13 @@ def test():
         sa.Column("date", sa.Date, nullable=False),
         schema="my_schema_other",
     )
+    initial_rows = (
+        (3, 4, 'd', date(2023, 1, 1)),
+        (4, 5, 'a', date(2023, 1, 2)),
+        (5, 6, 'q', date(2023, 1, 3)),
+    )
     with engine.begin() as conn:
-        upsert(conn, metadata_obj, ((row, my_table) for row in rows))
+        upsert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
 
     with engine.begin() as conn:
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
@@ -53,14 +52,13 @@ def test():
         (5, 6, 'q', date(2023, 1, 3)),
     ]
 
-    rows = (
+    updated_rows = (
         (5, 6, 'X', date(2023, 1, 4)),
         (6, 7, 'a', date(2023, 1, 5)),
         (7, 8 ,'q', date(2023, 1, 6)),
     )
-
     with engine.begin() as conn:
-        upsert(conn, metadata_obj, ((row, my_table) for row in rows))
+        upsert(conn, metadata_obj, ((row, my_table) for row in updated_rows))
 
     with engine.begin() as conn:
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
