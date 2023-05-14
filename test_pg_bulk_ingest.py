@@ -35,12 +35,13 @@ def test():
         sa.Column("date", sa.Date, nullable=True),
         sa.Column("array", sa.ARRAY(sa.Integer), nullable=False),
         sa.Column("json", sa.JSON, nullable=False),
+        sa.Column("jsonb", sa.dialects.postgresql.JSONB, nullable=False),
         schema="my_schema_other",
     )
     initial_rows = (
-        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}),
-        (4, 5, 'a', date(2023, 1, 2), [1,2], {}),
-        (5, 6, 'q', None, [1,2], {}),
+        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
+        (4, 5, 'a', date(2023, 1, 2), [1,2], {}, {}),
+        (5, 6, 'q', None, [1,2], {}, {}),
     )
     with engine.begin() as conn:
         upsert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
@@ -49,15 +50,15 @@ def test():
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
 
     assert results == [
-        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}),
-        (4, 5, 'a', date(2023, 1, 2), [1,2], {}),
-        (5, 6, 'q', None, [1,2], {}),
+        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
+        (4, 5, 'a', date(2023, 1, 2), [1,2], {}, {}),
+        (5, 6, 'q', None, [1,2], {}, {}),
     ]
 
     updated_rows = (
-        (5, 6, 'X', date(2023, 1, 4), [1,2], {}),
-        (6, 7, 'a', date(2023, 1, 5), [1,2], {'b': 3}),
-        (7, 8 ,'q', date(2023, 1, 6), [1,2], {}),
+        (5, 6, 'X', date(2023, 1, 4), [1,2], {}, {}),
+        (6, 7, 'a', date(2023, 1, 5), [1,2], {'b': 3}, {}),
+        (7, 8 ,'q', date(2023, 1, 6), [1,2], {}, {}),
     )
     with engine.begin() as conn:
         upsert(conn, metadata_obj, ((row, my_table) for row in updated_rows))
@@ -66,11 +67,11 @@ def test():
         results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
 
     assert results == [
-        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}),
-        (4, 5, 'a', date(2023, 1, 2), [1,2], {}),
-        (5, 6, 'X', date(2023, 1, 4), [1,2], {}),
-        (6, 7, 'a', date(2023, 1, 5), [1,2], {'b': 3}),
-        (7, 8, 'q', date(2023, 1, 6), [1,2], {}),
+        (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
+        (4, 5, 'a', date(2023, 1, 2), [1,2], {}, {}),
+        (5, 6, 'X', date(2023, 1, 4), [1,2], {}, {}),
+        (6, 7, 'a', date(2023, 1, 5), [1,2], {'b': 3}, {}),
+        (7, 8, 'q', date(2023, 1, 6), [1,2], {}, {}),
     ]
 
     assert len(metadata_obj.tables) == 1
