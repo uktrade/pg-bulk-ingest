@@ -32,13 +32,13 @@ def test():
         sa.Column("id_1", sa.Integer, primary_key=True),
         sa.Column("id_2", sa.Integer, primary_key=True),
         sa.Column("value", sa.String(16), nullable=False),
-        sa.Column("date", sa.Date, nullable=False),
+        sa.Column("date", sa.Date, nullable=True),
         schema="my_schema_other",
     )
     initial_rows = (
         (3, 4, 'd', date(2023, 1, 1)),
         (4, 5, 'a', date(2023, 1, 2)),
-        (5, 6, 'q', date(2023, 1, 3)),
+        (5, 6, 'q', None),
     )
     with engine.begin() as conn:
         upsert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
@@ -49,7 +49,7 @@ def test():
     assert results == [
         (3, 4, 'd', date(2023, 1, 1)),
         (4, 5, 'a', date(2023, 1, 2)),
-        (5, 6, 'q', date(2023, 1, 3)),
+        (5, 6, 'q', None),
     ]
 
     updated_rows = (
