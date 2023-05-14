@@ -60,6 +60,7 @@ with engine.begin() as conn:
     upsert(conn, metadata, ((row, my_table) for row in rows))
 ```
 
+
 ## Compatibility
 
 - Python >= 3.7.1 (tested on 3.7.1, 3.8.0, 3.9.0, 3.10.0, and 3.11.0)
