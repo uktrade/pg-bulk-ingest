@@ -15,8 +15,7 @@ except ImportError:
 from pg_bulk_ingest import upsert
 
 
-def test():
-
+def test_upsert():
     def bind_identifiers(query_str, *identifiers):
         return sa.text(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
