@@ -4,6 +4,7 @@ import sqlalchemy as sa
 import json
 from io import IOBase
 
+
 try:
     from psycopg2 import sql as sql2
 except ImportError:
@@ -190,3 +191,20 @@ def insert(conn, metadata, rows):
     # Insert rows into just the first table
     csv_copy(sql, conn, first_table, rows, copy_from_stdin)
 
+
+def replace(conn, metadata, rows):
+    sql, copy_from_stdin = _sql_and_copy_from_stdin(conn.engine.driver)
+
+    first_table = next(iter(metadata.tables.values()))
+
+    # Create the tables
+    for table in metadata.tables.values():
+        conn.execute(_bind_identifiers(sql, conn, '''
+            CREATE SCHEMA IF NOT EXISTS {}
+        ''', table.schema))
+    metadata.create_all(conn)
+    conn.execute(sa.delete(first_table))
+
+
+    # Insert rows into just the first table
+    csv_copy(sql, conn, first_table, rows, copy_from_stdin)
