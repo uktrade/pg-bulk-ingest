@@ -28,18 +28,11 @@ For example:
 
 ```python
 import sqlalchemy as sa
-from pg_bulk_ingest import ingest
+from pg_bulk_ingest import Mode, After, ingest
 
 # Run postgresql locally should allow the below to run
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
 engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
-
-# Any iterable of tuples
-rows = (
-    (3, 'd'),
-    (4, 'a'),
-    (5, 'q'),
-)
 
 # Collection of SQLAlchemy table definitions - a "Metadata"
 metadata = sa.MetaData()
@@ -50,8 +43,31 @@ my_table = sa.Table(
     sa.Column("value", sa.String(16), nullable=False),
     schema="my_schema",
 )
+
+# A function that yields batches of data, where each batch is
+# a tuple of of (high watermark, data rows). The batches must all
+# be strictly _after_ the high watermark passed into the function
+# Each row much have one of the SQLAlchemy tables associated with it
+def batches(high_watermark):
+    if high_watermark < '2015-01-01',
+        yield '2015-01-01', (
+            (my_table, (3, 'a')),
+            (my_table, (4, 'b')),
+            (my_table, (5, 'c')),
+        )
+    if high_watermark < '2015-01-02',
+        yield '2015-01-02', (
+            (my_table, (6, 'd')),
+            (my_table, (7, 'e')),
+            (my_table, (8, 'f')),
+        )
+
 with engine.begin() as conn:
-    ingest(conn, metadata, ((row, my_table) for row in rows))
+    ingest(
+        conn, metadata, batches,
+        after=After.HIGH_WATERMARK,         # Carry on from where left off
+        mode=Mode.UPSERT_COMMIT_EACH_BATCH, # Upsert based on primary key if present, commit each batch
+    )
 ```
 
 
