@@ -145,7 +145,7 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
     ) for table in tuple(metadata.tables.values()))
 
     # Create the table and intermediate tables
-    for intermediate_table in intermediate_tables:
+    for intermediate_table in metadata.tables.values():
         conn.execute(_bind_identifiers(sql, conn, '''
             CREATE SCHEMA IF NOT EXISTS {}
         ''', intermediate_table.schema))
