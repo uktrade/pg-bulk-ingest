@@ -129,8 +129,6 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
 
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
-    first_table = next(iter(metadata.tables.values()))
-
     # Create the target table
     for table in metadata.tables.values():
         conn.execute(bind_identifiers(sql, conn, '''
@@ -138,6 +136,7 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
         ''', table.schema))
     metadata.create_all(conn)
 
+    first_table = next(iter(metadata.tables.values()))
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
 
