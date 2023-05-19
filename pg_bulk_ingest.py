@@ -43,7 +43,7 @@ def _sql_and_copy_from_stdin(driver):
     }[driver]
 
 
-def _csv_copy(sql, conn, table, rows, copy_from_stdin):
+def _csv_copy(sql, copy_from_stdin, conn, table, rows):
 
     def get_converter(sa_type):
 
@@ -155,7 +155,7 @@ def upsert(conn, metadata, rows):
 
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
-    _csv_copy(sql, conn, first_intermediate_table, rows, copy_from_stdin)
+    _csv_copy(sql, copy_from_stdin, conn, first_intermediate_table, rows)
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
@@ -191,7 +191,7 @@ def insert(conn, metadata, rows):
     metadata.create_all(conn)
 
     # Insert rows into just the first table
-    _csv_copy(sql, conn, first_table, rows, copy_from_stdin)
+    _csv_copy(sql, copy_from_stdin, conn, first_table, rows)
 
 
 def replace(conn, metadata, rows):
@@ -208,4 +208,4 @@ def replace(conn, metadata, rows):
     conn.execute(sa.delete(first_table))
 
     # Insert rows into just the first table
-    _csv_copy(sql, conn, first_table, rows, copy_from_stdin)
+    _csv_copy(sql, copy_from_stdin, conn, first_table, rows)
