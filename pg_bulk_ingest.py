@@ -43,7 +43,7 @@ def _bind_identifiers(sql, conn, query_str, *identifiers):
     ).as_string(conn.connection.driver_connection))
 
 
-def _csv_copy(sql, copy_from_stdin, conn, table, rows):
+def _csv_copy(sql, copy_from_stdin, conn, user_facing_table, intermediate_table, rows):
 
     def get_converter(sa_type):
 
@@ -118,15 +118,15 @@ def _csv_copy(sql, copy_from_stdin, conn, table, rows):
 
         return FileLikeObj()
 
-    converters = tuple(get_converter(column.type) for column in table.columns)
+    converters = tuple(get_converter(column.type) for column in intermediate_table.columns)
     def db_rows():
-        for row, table in rows:
-            if table is not table:
+        for row, _row_table in rows:
+            if _row_table is not user_facing_table:
                 continue
             yield '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
 
     with conn.connection.driver_connection.cursor() as cursor:
-        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", table.schema, table.name)), to_file_like_obj(db_rows(), str))
+        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows(), str))
 
 
 def upsert(conn, metadata, rows):
@@ -155,7 +155,7 @@ def upsert(conn, metadata, rows):
 
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
-    _csv_copy(sql, copy_from_stdin, conn, first_intermediate_table, rows)
+    _csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, rows)
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
@@ -191,7 +191,7 @@ def insert(conn, metadata, rows):
     metadata.create_all(conn)
 
     # Insert rows into just the first table
-    _csv_copy(sql, copy_from_stdin, conn, first_table, rows)
+    _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
 
 
 def replace(conn, metadata, rows):
@@ -208,4 +208,4 @@ def replace(conn, metadata, rows):
     conn.execute(sa.delete(first_table))
 
     # Insert rows into just the first table
-    _csv_copy(sql, copy_from_stdin, conn, first_table, rows)
+    _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
