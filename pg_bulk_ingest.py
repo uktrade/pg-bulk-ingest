@@ -1,4 +1,5 @@
 import uuid
+from enum import Enum
 
 import sqlalchemy as sa
 import json
@@ -16,11 +17,10 @@ except ImportError:
     sql3 = None
 
 
-UPSERT = object()
-DELETE_ALL_ROWS_THEN_UPSERT = object()
+Mode = Enum('Mode', ['UPSERT', 'DELETE_ALL_ROWS_THEN_UPSERT'])
 
 
-def ingest(conn, metadata, rows, mode=UPSERT):
+def ingest(conn, metadata, rows, mode=Mode.UPSERT):
 
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
@@ -144,7 +144,7 @@ def ingest(conn, metadata, rows, mode=UPSERT):
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
 
-    if mode is DELETE_ALL_ROWS_THEN_UPSERT:
+    if mode is Mode.DELETE_ALL_ROWS_THEN_UPSERT:
         conn.execute(sa.delete(first_table))
 
     # Add missing columns
