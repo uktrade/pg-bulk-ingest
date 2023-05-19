@@ -128,7 +128,7 @@ def _csv_copy(sql, copy_from_stdin, conn, user_facing_table, intermediate_table,
         copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows, str))
 
 
-def upsert(conn, metadata, rows):
+def ingest(conn, metadata, rows):
     sql, copy_from_stdin = _sql_and_copy_from_stdin(conn.engine.driver)
 
     first_table = next(iter(metadata.tables.values()))
