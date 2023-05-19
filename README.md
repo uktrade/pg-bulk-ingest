@@ -16,9 +16,13 @@ pip install pg-bulk-ingest psycopg
 
 ## Usage
 
-The API is made of a single function:
+The API is made of a single function, `ingest` that can be used to insert data into a table. This:
 
-`ingest` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row, and optionally deletes all existing rows before the insert
+- creates the table if necessary
+- migrates any existing table if necessary
+- inserts the incoming data into the table
+- if the table has a primary key, performs an "upsert" based matching on this primary key
+- optionally deletes all existing rows before ingestion
 
 For example:
 
