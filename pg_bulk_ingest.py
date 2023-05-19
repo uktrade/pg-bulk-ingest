@@ -133,24 +133,12 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
 
     first_table = next(iter(metadata.tables.values()))
 
-    intermediate_metadata = sa.MetaData()
-    intermediate_tables = tuple(sa.Table(
-        uuid.uuid4().hex,
-        intermediate_metadata,
-        *(
-            sa.Column(column.name, column.type, primary_key=column.primary_key)
-            for column in table.columns
-        ),
-        schema=table.schema
-    ) for table in tuple(metadata.tables.values()))
-
-    # Create the table and intermediate tables
+    # Create the target table
     for table in metadata.tables.values():
         conn.execute(_bind_identifiers(sql, conn, '''
             CREATE SCHEMA IF NOT EXISTS {}
         ''', table.schema))
     metadata.create_all(conn)
-    intermediate_metadata.create_all(conn)
 
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
@@ -172,7 +160,18 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
             )
             conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
 
-    # Insert rows into just the first intermediate table
+    # Create the intermediate tables, and ingest into them
+    intermediate_metadata = sa.MetaData()
+    intermediate_tables = tuple(sa.Table(
+        uuid.uuid4().hex,
+        intermediate_metadata,
+        *(
+            sa.Column(column.name, column.type, primary_key=column.primary_key)
+            for column in table.columns
+        ),
+        schema=table.schema
+    ) for table in tuple(metadata.tables.values()))
+    intermediate_metadata.create_all(conn)
     first_intermediate_table = intermediate_tables[0]
     _csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, rows)
 
