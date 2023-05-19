@@ -16,12 +16,6 @@ except ImportError:
     sql3 = None
 
 
-def _bind_identifiers(sql, conn, query_str, *identifiers):
-    return sa.text(sql.SQL(query_str).format(
-        *(sql.Identifier(identifier) for identifier in identifiers)
-    ).as_string(conn.connection.driver_connection))
-
-
 def _sql_and_copy_from_stdin(driver):
     # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
     # COPY ... FROM STDIN API via write_row that handles escaping,
@@ -41,6 +35,12 @@ def _sql_and_copy_from_stdin(driver):
         'psycopg2': (sql2, copy_from_stdin2),
         'psycopg': (sql3, copy_from_stdin3),
     }[driver]
+
+
+def _bind_identifiers(sql, conn, query_str, *identifiers):
+    return sa.text(sql.SQL(query_str).format(
+        *(sql.Identifier(identifier) for identifier in identifiers)
+    ).as_string(conn.connection.driver_connection))
 
 
 def _csv_copy(sql, copy_from_stdin, conn, table, rows):
