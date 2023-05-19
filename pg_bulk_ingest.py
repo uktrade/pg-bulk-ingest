@@ -22,79 +22,6 @@ def _bind_identifiers(sql, conn, query_str, *identifiers):
     ).as_string(conn.connection.driver_connection))
 
 
-def _get_converter(sa_type):
-    
-    def escape_array_item(text):
-        return text.replace('\\', '\\\\').replace('"', '\\"')
-
-    def escape_string(text):
-        return (
-            text.replace('\\', '\\\\')
-            .replace('\n', '\\n')
-            .replace('\r', '\\r')
-            .replace('\t', '\\t')
-        )
-    
-    null = '\\N'
-    
-    if isinstance(sa_type, sa.Integer):
-        return lambda v: (null if v is None else str(int(v)))
-    elif isinstance(sa_type, sa.JSON):
-        return lambda v: (null if v is None else escape_string(json.dumps(v)))
-    elif isinstance(sa_type, sa.ARRAY):
-        return lambda v: (
-            null
-            if v is None
-            else escape_string(
-                '{'
-                + (
-                    ','.join(
-                        (
-                            'NULL'
-                            if item is None
-                            else ('"' + escape_array_item(str(item)) + '"')
-                        )
-                        for item in v
-                    )
-                )
-                + '}',
-            )
-        )
-    else:
-        return lambda v: (null if v is None else escape_string(str(v)))
-    
-def _to_file_like_obj(iterable, base):
-    chunk = base()
-    offset = 0
-    it = iter(iterable)
-
-    def up_to_iter(size):
-        nonlocal chunk, offset
-
-        while size:
-            if offset == len(chunk):
-                try:
-                    chunk = next(it)
-                except StopIteration:
-                    break
-                else:
-                    offset = 0
-            to_yield = min(size, len(chunk) - offset)
-            offset = offset + to_yield
-            size -= to_yield
-            yield chunk[offset - to_yield : offset]
-
-    class FileLikeObj(IOBase):
-        def readable(self):
-            return True
-
-        def read(self, size=-1):
-            return base().join(
-                up_to_iter(float('inf') if size is None or size < 0 else size)
-            )
-
-    return FileLikeObj()
-
 def _sql_and_copy_from_stdin(driver):
     # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
     # COPY ... FROM STDIN API via write_row that handles escaping,
@@ -115,8 +42,83 @@ def _sql_and_copy_from_stdin(driver):
         'psycopg': (sql3, copy_from_stdin3),
     }[driver]
 
-def csv_copy(sql, conn, table, rows, copy_from_stdin):
-    converters = tuple(_get_converter(column.type) for column in table.columns)
+
+def _csv_copy(sql, conn, table, rows, copy_from_stdin):
+
+    def get_converter(sa_type):
+
+        def escape_array_item(text):
+            return text.replace('\\', '\\\\').replace('"', '\\"')
+
+        def escape_string(text):
+            return (
+                text.replace('\\', '\\\\')
+                .replace('\n', '\\n')
+                .replace('\r', '\\r')
+                .replace('\t', '\\t')
+            )
+
+        null = '\\N'
+
+        if isinstance(sa_type, sa.Integer):
+            return lambda v: (null if v is None else str(int(v)))
+        elif isinstance(sa_type, sa.JSON):
+            return lambda v: (null if v is None else escape_string(json.dumps(v)))
+        elif isinstance(sa_type, sa.ARRAY):
+            return lambda v: (
+                null
+                if v is None
+                else escape_string(
+                    '{'
+                    + (
+                        ','.join(
+                            (
+                                'NULL'
+                                if item is None
+                                else ('"' + escape_array_item(str(item)) + '"')
+                            )
+                            for item in v
+                        )
+                    )
+                    + '}',
+                )
+            )
+        else:
+            return lambda v: (null if v is None else escape_string(str(v)))
+
+    def to_file_like_obj(iterable, base):
+        chunk = base()
+        offset = 0
+        it = iter(iterable)
+
+        def up_to_iter(size):
+            nonlocal chunk, offset
+
+            while size:
+                if offset == len(chunk):
+                    try:
+                        chunk = next(it)
+                    except StopIteration:
+                        break
+                    else:
+                        offset = 0
+                to_yield = min(size, len(chunk) - offset)
+                offset = offset + to_yield
+                size -= to_yield
+                yield chunk[offset - to_yield : offset]
+
+        class FileLikeObj(IOBase):
+            def readable(self):
+                return True
+
+            def read(self, size=-1):
+                return base().join(
+                    up_to_iter(float('inf') if size is None or size < 0 else size)
+                )
+
+        return FileLikeObj()
+
+    converters = tuple(get_converter(column.type) for column in table.columns)
     def db_rows():
         for row, table in rows:
             if table is not table:
@@ -124,7 +126,7 @@ def csv_copy(sql, conn, table, rows, copy_from_stdin):
             yield '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
 
     with conn.connection.driver_connection.cursor() as cursor:
-        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", table.schema, table.name)), _to_file_like_obj(db_rows(), str))
+        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", table.schema, table.name)), to_file_like_obj(db_rows(), str))
 
 
 def upsert(conn, metadata, rows):
@@ -153,7 +155,7 @@ def upsert(conn, metadata, rows):
 
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
-    csv_copy(sql, conn, first_intermediate_table, rows, copy_from_stdin)
+    _csv_copy(sql, conn, first_intermediate_table, rows, copy_from_stdin)
 
     # Copy from that intermediate table into the main table, using
     # ON CONFLICT to update any existing rows
@@ -189,7 +191,7 @@ def insert(conn, metadata, rows):
     metadata.create_all(conn)
 
     # Insert rows into just the first table
-    csv_copy(sql, conn, first_table, rows, copy_from_stdin)
+    _csv_copy(sql, conn, first_table, rows, copy_from_stdin)
 
 
 def replace(conn, metadata, rows):
@@ -205,6 +207,5 @@ def replace(conn, metadata, rows):
     metadata.create_all(conn)
     conn.execute(sa.delete(first_table))
 
-
     # Insert rows into just the first table
-    csv_copy(sql, conn, first_table, rows, copy_from_stdin)
+    _csv_copy(sql, conn, first_table, rows, copy_from_stdin)
