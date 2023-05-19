@@ -12,7 +12,7 @@ except ImportError:
     from psycopg2 import sql
     engine_type = 'postgresql+psycopg2'
 
-from pg_bulk_ingest import insert, ingest
+from pg_bulk_ingest import ingest
 
 
 def test_upsert():
@@ -174,7 +174,7 @@ def test_insert():
         (5, 6, 'q', None, [1,2], {}, {}),
     )
     with engine.begin() as conn:
-        insert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
+        ingest(conn, metadata_obj, ((row, my_table) for row in initial_rows))
 
     with engine.begin() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
@@ -191,7 +191,7 @@ def test_insert():
         (7, 8 ,'q', date(2023, 1, 6), [1,2], {}, {}),
     )
     with engine.begin() as conn:
-        insert(conn, metadata_obj, ((row, my_table) for row in updated_rows))
+        ingest(conn, metadata_obj, ((row, my_table) for row in updated_rows))
 
     with engine.begin() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2', 'value')).fetchall()

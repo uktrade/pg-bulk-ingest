@@ -160,53 +160,41 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
             )
             conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
 
-    # Create the intermediate tables, and ingest into them
-    intermediate_metadata = sa.MetaData()
-    intermediate_tables = tuple(sa.Table(
-        uuid.uuid4().hex,
-        intermediate_metadata,
-        *(
-            sa.Column(column.name, column.type, primary_key=column.primary_key)
-            for column in table.columns
-        ),
-        schema=table.schema
-    ) for table in tuple(metadata.tables.values()))
-    intermediate_metadata.create_all(conn)
-    first_intermediate_table = intermediate_tables[0]
-    _csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, rows)
+    is_upsert = any(column.primary_key for column in first_table.columns.values())
+    if not is_upsert:
+        _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
+    else:
+        # Create the intermediate tables, and ingest into them
+        intermediate_metadata = sa.MetaData()
+        intermediate_tables = tuple(sa.Table(
+            uuid.uuid4().hex,
+            intermediate_metadata,
+            *(
+                sa.Column(column.name, column.type, primary_key=column.primary_key)
+                for column in table.columns
+            ),
+            schema=table.schema
+        ) for table in tuple(metadata.tables.values()))
+        intermediate_metadata.create_all(conn)
+        first_intermediate_table = intermediate_tables[0]
+        _csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, rows)
 
-    # Copy from that intermediate table into the main table, using
-    # ON CONFLICT to update any existing rows
-    insert_query = sql.SQL('''
-        INSERT INTO {schema}.{table}
-        SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{intermediate_table}
-        ON CONFLICT({primary_keys})
-        DO UPDATE SET {updates}
-    ''').format(
-        schema=sql.Identifier(first_table.schema),
-        table=sql.Identifier(first_table.name),
-        intermediate_schema=sql.Identifier(first_intermediate_table.schema),
-        intermediate_table=sql.Identifier(first_intermediate_table.name),      
-        primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in first_table.columns if column.primary_key)),
-        updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in first_table.columns),
-    )
-    conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
+        # Copy from that intermediate table into the main table, using
+        # ON CONFLICT to update any existing rows
+        insert_query = sql.SQL('''
+            INSERT INTO {schema}.{table}
+            SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{intermediate_table}
+            ON CONFLICT({primary_keys})
+            DO UPDATE SET {updates}
+        ''').format(
+            schema=sql.Identifier(first_table.schema),
+            table=sql.Identifier(first_table.name),
+            intermediate_schema=sql.Identifier(first_intermediate_table.schema),
+            intermediate_table=sql.Identifier(first_intermediate_table.name),
+            primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in first_table.columns if column.primary_key)),
+            updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in first_table.columns),
+        )
+        conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
-    # Drop the intermediate table
-    intermediate_metadata.drop_all(conn)
-
-
-def insert(conn, metadata, rows):
-    sql, copy_from_stdin = _sql_and_copy_from_stdin(conn.engine.driver)
-
-    first_table = next(iter(metadata.tables.values()))
-
-    # Create the tables
-    for table in metadata.tables.values():
-        conn.execute(_bind_identifiers(sql, conn, '''
-            CREATE SCHEMA IF NOT EXISTS {}
-        ''', table.schema))
-    metadata.create_all(conn)
-
-    # Insert rows into just the first table
-    _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
+        # Drop the intermediate table
+        intermediate_metadata.drop_all(conn)

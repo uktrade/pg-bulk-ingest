@@ -1,6 +1,6 @@
 # pg-bulk-ingest
 
-A collection of Python utility functions for ingesting data into SQLAlchemy-defined PostgreSQL tables, automatically migrating them as needed, and minimising locking
+A Python utility function for ingesting data into SQLAlchemy-defined PostgreSQL tables, automatically migrating them as needed, and minimising locking
 
 > Work-in-progress. This README serves as a rough design spec
 
@@ -16,25 +16,24 @@ pip install pg-bulk-ingest psycopg
 
 ## Usage
 
-The API is made of 2 function:
+The API is made of a single function:
 
-- `insert` - inserts the incoming rows into the table, leaving existing rows alone
-- `upsert` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row, and optionally deletes all existing rows before the insert
+`ingest` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row, and optionally deletes all existing rows before the insert
 
-In each case under hood:
+Under hood:
 
 - Ingestion is done exclusively with `COPY FROM`.
 - Ingestion happens in a transaction - it is all ingested or none at all
 - The transaction is managed by client code, allowing other transactional changes such as updating metadata tables
 - Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
-- For `upsert`, data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
-- For both functions, if there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
+- If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
+- If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
 
-For example to `upsert`:
+For example:
 
 ```python
 import sqlalchemy as sa
-from pg_bulk_ingest import upsert
+from pg_bulk_ingest import ingest
 
 # Run postgresql locally should allow the below to run
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
@@ -57,7 +56,7 @@ my_table = sa.Table(
     schema="my_schema",
 )
 with engine.begin() as conn:
-    upsert(conn, metadata, ((row, my_table) for row in rows))
+    ingest(conn, metadata, ((row, my_table) for row in rows))
 ```
 
 
