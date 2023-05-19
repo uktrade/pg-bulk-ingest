@@ -16,11 +16,6 @@ from pg_bulk_ingest import insert, upsert, replace
 
 
 def test_upsert():
-    def bind_identifiers(query_str, *identifiers):
-        return sa.text(sql.SQL(query_str).format(
-            *(sql.Identifier(identifier) for identifier in identifiers)
-        ).as_string(conn.connection.driver_connection))
-
     table_name = "my_table_" + uuid.uuid4().hex
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/')
 
@@ -46,7 +41,7 @@ def test_upsert():
         upsert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
@@ -63,7 +58,7 @@ def test_upsert():
         upsert(conn, metadata_obj, ((row, my_table) for row in updated_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
@@ -76,11 +71,6 @@ def test_upsert():
     assert len(metadata_obj.tables) == 1
 
 def test_upsert_extra_column():
-    def bind_identifiers(query_str, *identifiers):
-        return sa.text(sql.SQL(query_str).format(
-            *(sql.Identifier(identifier) for identifier in identifiers)
-        ).as_string(conn.connection.driver_connection))
-
     table_name = "my_table_" + uuid.uuid4().hex
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/')
 
@@ -106,7 +96,7 @@ def test_upsert_extra_column():
         upsert(conn, metadata_obj_1, ((row, my_table_1) for row in initial_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table_1).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
@@ -123,7 +113,7 @@ def test_upsert_extra_column():
         upsert(conn, metadata_obj_1, ((row, my_table_1) for row in updated_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table_1).order_by('id_1', 'id_2')).fetchall()
 
     metadata_obj_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -149,7 +139,7 @@ def test_upsert_extra_column():
         upsert(conn, metadata_obj_2, ((row, my_table_2) for row in updated_rows_new_column))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table_2).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}, None),
@@ -162,11 +152,6 @@ def test_upsert_extra_column():
     assert len(metadata_obj_1.tables) == 1
 
 def test_insert():
-    def bind_identifiers(query_str, *identifiers):
-        return sa.text(sql.SQL(query_str).format(
-            *(sql.Identifier(identifier) for identifier in identifiers)
-        ).as_string(conn.connection.driver_connection))
-
     table_name = "my_table_" + uuid.uuid4().hex
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/')
 
@@ -192,7 +177,7 @@ def test_insert():
         insert(conn, metadata_obj, ((row, my_table) for row in initial_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
@@ -209,7 +194,7 @@ def test_insert():
         insert(conn, metadata_obj, ((row, my_table) for row in updated_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2, value', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2', 'value')).fetchall()
 
     assert tuple(results) == initial_rows + updated_rows
 
@@ -247,7 +232,7 @@ def test_replace():
         replace(conn, metadata_obj, ((row, my_table) for row in initial_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
     assert results == [
         (3, 4, 'd', date(2023, 1, 1), [1,2], {'a': 2}, {'c': None}),
@@ -264,7 +249,7 @@ def test_replace():
         replace(conn, metadata_obj, ((row, my_table) for row in updated_rows))
 
     with engine.begin() as conn:
-        results = conn.execute(bind_identifiers('SELECT * FROM my_schema_other.{} ORDER BY id_1, id_2', table_name)).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
     assert tuple(results) == (
         (5, 6, 'X', date(2023, 1, 4), [1,2], {}, {}),
