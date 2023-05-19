@@ -16,7 +16,11 @@ except ImportError:
     sql3 = None
 
 
-def ingest(conn, metadata, rows, delete_all_existing_rows=False):
+UPSERT = object()
+DELETE_ALL_ROWS_THEN_UPSERT = object()
+
+
+def ingest(conn, metadata, rows, mode=UPSERT):
 
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
@@ -140,7 +144,7 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
 
-    if delete_all_existing_rows:
+    if mode is DELETE_ALL_ROWS_THEN_UPSERT:
         conn.execute(sa.delete(first_table))
 
     # Add missing columns
