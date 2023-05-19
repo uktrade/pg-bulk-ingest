@@ -128,7 +128,7 @@ def _csv_copy(sql, copy_from_stdin, conn, user_facing_table, intermediate_table,
         copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows, str))
 
 
-def ingest(conn, metadata, rows):
+def ingest(conn, metadata, rows, delete_all_existing_rows=False):
     sql, copy_from_stdin = _sql_and_copy_from_stdin(conn.engine.driver)
 
     first_table = next(iter(metadata.tables.values()))
@@ -154,6 +154,9 @@ def ingest(conn, metadata, rows):
 
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
+
+    if delete_all_existing_rows:
+        conn.execute(sa.delete(first_table))
 
     # Add missing columns
     for column_name, column in intermediate_table.columns.items():
@@ -205,23 +208,6 @@ def insert(conn, metadata, rows):
             CREATE SCHEMA IF NOT EXISTS {}
         ''', table.schema))
     metadata.create_all(conn)
-
-    # Insert rows into just the first table
-    _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
-
-
-def replace(conn, metadata, rows):
-    sql, copy_from_stdin = _sql_and_copy_from_stdin(conn.engine.driver)
-
-    first_table = next(iter(metadata.tables.values()))
-
-    # Create the tables
-    for table in metadata.tables.values():
-        conn.execute(_bind_identifiers(sql, conn, '''
-            CREATE SCHEMA IF NOT EXISTS {}
-        ''', table.schema))
-    metadata.create_all(conn)
-    conn.execute(sa.delete(first_table))
 
     # Insert rows into just the first table
     _csv_copy(sql, copy_from_stdin, conn, first_table, first_table, rows)
