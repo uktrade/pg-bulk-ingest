@@ -152,6 +152,23 @@ def upsert(conn, metadata, rows):
     metadata.create_all(conn)
     intermediate_metadata.create_all(conn)
 
+    live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
+    live_table_column_names = set(live_table.columns.keys())
+
+    # Add missing columns
+    for column_name, column in intermediate_table.columns.items():
+        if column_name not in live_table_column_names:
+            alter_query = sql.SQL('''
+                ALTER TABLE {schema}.{table}
+                ADD COLUMN {column_name} {column_type}
+            ''').format(
+                schema=sql.Identifier(first_table.schema),
+                table=sql.Identifier(first_table.name),
+                column_name=sql.Identifier(column_name),
+                column_type=sql.SQL(column.type.compile(conn.engine.dialect)),
+            )
+            conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
+
     # Insert rows into just the first intermediate table
     first_intermediate_table = intermediate_tables[0]
     _csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, rows)
