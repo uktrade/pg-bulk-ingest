@@ -62,11 +62,11 @@ def batches(high_watermark):
             (my_table, (8, 'f')),
         )
 
-with engine.begin() as conn:
+with engine.connect() as conn:
     ingest(
         conn, metadata, batches,
-        after=After.HIGH_WATERMARK,         # Carry on from where left off
-        mode=Mode.UPSERT_COMMIT_EACH_BATCH, # Upsert based on primary key if present, commit each batch
+        after=After.HIGH_WATERMARK,             # Carry on from where left off
+        mode=Mode.UPSERT_AND_COMMIT_EACH_BATCH, # Upsert based on primary key if present, committing each batch
     )
 ```
 
@@ -74,8 +74,7 @@ with engine.begin() as conn:
 ## Under the hood
 
 - Ingestion is done exclusively with `COPY FROM`.
-- Ingestion happens in a transaction - it is all ingested or none at all
-- The transaction is managed by client code, allowing other transactional changes such as updating metadata tables
+- Ingestion is transactional, each batch is ingested completely or not at all
 - Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
 - If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
 - If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
@@ -88,4 +87,4 @@ with engine.begin() as conn:
 - SQLAlchemy >= 1.4.24 (tested on 1.4.24 and 2.0.0)
 - PostgreSQL >= 9.6 (tested on 9.6, 10.0, 11.0, 12.0, 13.0, 14.0, and 15.0)
 
-Note that SQLAlchemy < 2 does not support Psycopg 3.
+Note that SQLAlchemy < 2 does not support Psycopg 3, and for SQLAlchemy < 2 `future=True` must be passed to `create_engine`.
