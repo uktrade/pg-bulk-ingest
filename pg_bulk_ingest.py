@@ -159,7 +159,7 @@ def ingest(conn, metadata, rows, delete_all_existing_rows=False):
         conn.execute(sa.delete(first_table))
 
     # Add missing columns
-    for column_name, column in intermediate_table.columns.items():
+    for column_name, column in first_table.columns.items():
         if column_name not in live_table_column_names:
             alter_query = sql.SQL('''
                 ALTER TABLE {schema}.{table}
