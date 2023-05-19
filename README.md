@@ -20,15 +20,6 @@ The API is made of a single function:
 
 `ingest` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row, and optionally deletes all existing rows before the insert
 
-Under the hood:
-
-- Ingestion is done exclusively with `COPY FROM`.
-- Ingestion happens in a transaction - it is all ingested or none at all
-- The transaction is managed by client code, allowing other transactional changes such as updating metadata tables
-- Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
-- If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
-- If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
-
 For example:
 
 ```python
@@ -58,6 +49,16 @@ my_table = sa.Table(
 with engine.begin() as conn:
     ingest(conn, metadata, ((row, my_table) for row in rows))
 ```
+
+
+## Under the hood
+
+- Ingestion is done exclusively with `COPY FROM`.
+- Ingestion happens in a transaction - it is all ingested or none at all
+- The transaction is managed by client code, allowing other transactional changes such as updating metadata tables
+- Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
+- If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
+- If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
 
 
 ## Compatibility
