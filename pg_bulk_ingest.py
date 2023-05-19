@@ -119,14 +119,13 @@ def _csv_copy(sql, copy_from_stdin, conn, user_facing_table, intermediate_table,
         return FileLikeObj()
 
     converters = tuple(get_converter(column.type) for column in intermediate_table.columns)
-    def db_rows():
-        for row, _row_table in rows:
-            if _row_table is not user_facing_table:
-                continue
-            yield '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
-
+    db_rows = (
+        '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
+        for row, row_table in rows
+        if row_table is user_facing_table
+    )
     with conn.connection.driver_connection.cursor() as cursor:
-        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows(), str))
+        copy_from_stdin(cursor, str(_bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows, str))
 
 
 def upsert(conn, metadata, rows):
