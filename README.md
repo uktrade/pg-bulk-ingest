@@ -20,7 +20,7 @@ The API is made of a single function:
 
 `ingest` - inserts the incoming rows into the table, but if a primary key matches an existing row, updates the existing row, and optionally deletes all existing rows before the insert
 
-Under hood:
+Under the hood:
 
 - Ingestion is done exclusively with `COPY FROM`.
 - Ingestion happens in a transaction - it is all ingested or none at all
