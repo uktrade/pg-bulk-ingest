@@ -190,13 +190,12 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
             # ON CONFLICT to update any existing rows
             insert_query = sql.SQL('''
                 INSERT INTO {schema}.{table}
-                SELECT * FROM {intermediate_schema}.{batch_table}
+                SELECT * FROM {schema}.{batch_table}
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
                 schema=sql.Identifier(target_table.schema),
                 table=sql.Identifier(target_table.name),
-                intermediate_schema=sql.Identifier(batch_table.schema),
                 batch_table=sql.Identifier(batch_table.name),
                 primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
                 updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
