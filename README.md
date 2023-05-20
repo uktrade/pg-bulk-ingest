@@ -1,6 +1,6 @@
 # pg-bulk-ingest
 
-A Python utility function for ingesting data into SQLAlchemy-defined PostgreSQL tables, automatically migrating them as needed, and minimising locking
+A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, and minimising locking.
 
 > Work-in-progress. This README serves as a rough design spec
 
@@ -34,7 +34,7 @@ from pg_bulk_ingest import HighWatermark, Visibility, Delete, ingest
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
 engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
 
-# Collection of SQLAlchemy table definitions - a "Metadata"
+# A SQLAlchemy Metadata of a single table definition
 metadata = sa.MetaData()
 my_table = sa.Table(
     "my_table",
@@ -47,7 +47,7 @@ my_table = sa.Table(
 # A function that yields batches of data, where each batch is
 # a tuple of of (high watermark, data rows). The batches must all
 # be strictly _after_ the high watermark passed into the function
-# Each row much have one of the SQLAlchemy tables associated with it
+# Each row much have the SQLAlchemy table associated with it
 def batches(high_watermark):
     if high_watermark < '2015-01-01',
         yield '2015-01-01', (
@@ -84,7 +84,7 @@ Ingests data into tables
 
 - `conn` - A [SQLAlchemy connection](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection) not in a transaction, i.e. started by `connection` rather than `begin`.
 
-- `metadata` - A SQLAlchemy metadata.
+- `metadata` - A SQLAlchemy metadata of a single table.
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
@@ -92,7 +92,7 @@ Ingests data into tables
 
 - `visibility` (optional) - When ingests will be visible to other clients.
 
-- `delete` (optional) - Whether or not to delete existing rows
+- `delete` (optional) - If existing rows are to be deleted.
 
 ---
 
@@ -106,11 +106,9 @@ An Enum to indicate to the `ingest` function how it should use any previously st
 
 `Visibility`
 
-An enum to indicate when changes are visible to other database clients. Note that schema changes become visible in all cases even if there are no batches.
+An enum to indicate when changes are visible to other database clients. Note that schema changes become visible even if there are no batches.
 
 - `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch
-
-- `AFTER_FINAL_BATCH` - changes are visible to ohter database clients after the final batch
 
 ---
 
@@ -138,9 +136,9 @@ Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgre
 
 - Ingestion is done exclusively with `COPY FROM`.
 - Ingestion is transactional, each batch is ingested completely or not at all
-- Tables are migrated to match the definitions, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
-- If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it as follows.
-- If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the ingest. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
+- The table is migrated to match the definition, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
+- If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it.
+- If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the first batch. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
 
 
 ## Compatibility
