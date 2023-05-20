@@ -1,6 +1,7 @@
 import uuid
 from datetime import date
 
+import pytest
 import sqlalchemy as sa
 
 try:
@@ -32,10 +33,13 @@ def test_data_types():
         sa.Column("jsonb", sa.dialects.postgresql.JSONB),
         schema="my_schema",
     )
-    batches = (
+    batches = lambda _: (
         (
-            (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {})),
-            (my_table, (5, 'b', None, [1,2], {}, {})),
+            None,
+            (
+                (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {})),
+                (my_table, (5, 'b', None, [1,2], {}, {})),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -60,12 +64,18 @@ def test_batches():
         sa.Column("integer", sa.INTEGER),
         schema="my_schema",
     )
-    batches = (
+    batches = lambda _: (
         (
-            (my_table, (1,)),
+            None,
+            (
+                (my_table, (1,)),
+            ),
         ),
         (
-            (my_table, (2,)),
+            None,
+            (
+                (my_table, (2,)),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -120,7 +130,7 @@ def test_batch_visible_only_after_batch_complete():
         with engine.connect() as conn:
             batch_2_result_3 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
-    def batches():
+    def batches(_):
         nonlocal table_not_found_before_batch_1, results_after_batch_1, results_after_batch_2
         with engine.connect() as conn:
             try:
@@ -128,17 +138,17 @@ def test_batch_visible_only_after_batch_complete():
             except sa.exc.ProgrammingError:
                 table_not_found_before_batch_1 = True
 
-        yield batch_1()
+        yield None, batch_1()
 
         with engine.connect() as conn:
             results_after_batch_1 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
-        yield batch_2()
+        yield None, batch_2()
         with engine.connect() as conn:
             results_after_batch_2 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
   
     with engine.connect() as conn:
-        ingest(conn, metadata, batches())
+        ingest(conn, metadata, batches)
 
     assert table_not_found_before_batch_1 == True
     assert results_after_batch_1 == [
@@ -179,23 +189,30 @@ def test_upsert():
         sa.Column("value_2", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table, (1, 2, 'a', 'b')),
-            (my_table, (3, 4, 'c', 'd')),
+            None,
+            (
+                (my_table, (1, 2, 'a', 'b')),
+                (my_table, (3, 4, 'c', 'd')),
+            ),
         ),
     )
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    batches_2 = (
+    batches_2 = lambda _: (
         (
-            (my_table, (3, 4, 'e', 'f')),
-            (my_table, (3, 6, 'g', 'h')),
+            None,
+            (
+                (my_table, (3, 4, 'e', 'f')),
+                (my_table, (3, 6, 'g', 'h')),
+            ),
         ),
     )
     with engine.connect() as conn:
-        ingest(conn, metadata, batches_2)
+        ingest(conn, metadata, batches_2
+            )
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
@@ -209,6 +226,93 @@ def test_upsert():
     assert len(metadata.tables) == 1
 
 
+def test_high_watermark_is_preserved_between_ingests():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+
+    def batches(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield (high_watermark or 0) + 1, ()
+        yield (high_watermark or 0) + 2, ()
+        yield (high_watermark or 0) + 3, ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 3]
+
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 3, 6]
+
+
+def test_high_watermark_is_preserved_if_exception():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+
+    def batches(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield (high_watermark or 0) + 1, ()
+        if (high_watermark or 0) > 4:
+            raise Exception()
+        yield (high_watermark or 0) + 3, ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 3]
+
+    with \
+            pytest.raises(Exception), \
+            engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 3, 6]
+
+    with \
+            pytest.raises(Exception), \
+            engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 3, 6, 7]
+
+
 def test_migrate_add_column_at_end():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -220,9 +324,12 @@ def test_migrate_add_column_at_end():
         sa.Column("value_1", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table_1, (1, 'a')),
+            None,
+            (
+                (my_table_1, (1, 'a')),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -237,9 +344,12 @@ def test_migrate_add_column_at_end():
         sa.Column("value_2", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_2 = (
+    batches_2 = lambda _: (
         (
-            (my_table_2, (2, 'b', 'c')),
+            None,
+            (
+                (my_table_2, (2, 'b', 'c')),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -269,9 +379,12 @@ def test_migrate_add_column_not_at_end_no_data():
         sa.Column("value_b", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table_1, (1, 'a', 'b')),
+            None,
+            (
+                (my_table_1, (1, 'a', 'b')),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -287,7 +400,7 @@ def test_migrate_add_column_not_at_end_no_data():
         sa.Column("value_b", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_2 = (
+    batches_2 = lambda _: (
     )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
@@ -315,9 +428,12 @@ def test_migrate_add_column_not_at_end_no_data():
         sa.Column("value_b", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table_1, (1, 'a', 'b')),
+            None,
+            (
+                (my_table_1, (1, 'a', 'b')),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -333,7 +449,7 @@ def test_migrate_add_column_not_at_end_no_data():
         sa.Column("value_b", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_2 = (
+    batches_2 = lambda _: (
     )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
@@ -359,17 +475,23 @@ def test_insert():
         sa.Column("integer", sa.INTEGER),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table, (1,)),
+            None,
+            (
+                (my_table, (1,)),
+            ),
         ),
     )
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    batches_2 = (
+    batches_2 = lambda _: (
         (
-            (my_table, (2,)),
+            None,
+            (
+                (my_table, (2,)),
+            ),
         ),
     )
     with engine.connect() as conn:
@@ -396,17 +518,23 @@ def test_delete():
         sa.Column("integer", sa.INTEGER),
         schema="my_schema",
     )
-    batches_1 = (
+    batches_1 = lambda _: (
         (
-            (my_table, (1,)),
+            None,
+            (
+                (my_table, (1,)),
+            ),
         ),
     )
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    batches_2 = (
+    batches_2 = lambda _: (
         (
-            (my_table, (2,)),
+            None,
+            (
+                (my_table, (2,)),
+            ),
         ),
     )
     with engine.connect() as conn:
