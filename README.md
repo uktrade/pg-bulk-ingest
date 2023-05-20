@@ -87,7 +87,7 @@ Ingests data into a table
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
-- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is the `HighWatermark.LATEST`, the default, then the most high watermark that has most recently been ingested is passed into the `batches` function.
+- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is the `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function.
 
 - `visibility` (optional) - When ingests will be visible to other clients.
 
