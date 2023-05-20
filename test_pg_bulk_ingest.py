@@ -34,8 +34,8 @@ def test_data_types():
     )
     batches = (
         (
-            ((4, 'a', date(2023, 1, 2), [1,2], {}, {}), my_table),
-            ((5, 'b', None, [1,2], {}, {}), my_table),
+            (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {})),
+            (my_table, (5, 'b', None, [1,2], {}, {})),
         ),
     )
     with engine.connect() as conn:
@@ -62,10 +62,10 @@ def test_batches():
     )
     batches = (
         (
-            ((1,), my_table),
+            (my_table, (1,)),
         ),
         (
-            ((2,), my_table),
+            (my_table, (2,)),
         ),
     )
     with engine.connect() as conn:
@@ -101,8 +101,8 @@ def test_batch_visible_only_after_batch_complete():
     results_after_batch_2 = None
 
     def batch_1():
-        yield ((1,), my_table)
-        yield ((2,), my_table)
+        yield (my_table, (1,))
+        yield (my_table, (2,))
 
     def batch_2():
         nonlocal batch_2_result_1, batch_2_result_2, batch_2_result_3
@@ -110,12 +110,12 @@ def test_batch_visible_only_after_batch_complete():
         with engine.connect() as conn:
             batch_2_result_1 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
-        yield ((3,), my_table)
+        yield (my_table, (3,))
 
         with engine.connect() as conn:
             batch_2_result_2 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
-        yield ((4,), my_table)
+        yield (my_table, (4,))
 
         with engine.connect() as conn:
             batch_2_result_3 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
@@ -181,8 +181,8 @@ def test_upsert():
     )
     batches_1 = (
         (
-            ((1, 2, 'a', 'b'), my_table),
-            ((3, 4, 'c', 'd'), my_table),
+            (my_table, (1, 2, 'a', 'b')),
+            (my_table, (3, 4, 'c', 'd')),
         ),
     )
     with engine.connect() as conn:
@@ -190,8 +190,8 @@ def test_upsert():
 
     batches_2 = (
         (
-            ((3, 4, 'e', 'f'), my_table),
-            ((3, 6, 'g', 'h'), my_table),
+            (my_table, (3, 4, 'e', 'f')),
+            (my_table, (3, 6, 'g', 'h')),
         ),
     )
     with engine.connect() as conn:
@@ -222,7 +222,7 @@ def test_migrate_add_column_at_end():
     )
     batches_1 = (
         (
-            ((1, 'a'), my_table_1),
+            (my_table_1, (1, 'a')),
         ),
     )
     with engine.connect() as conn:
@@ -239,7 +239,7 @@ def test_migrate_add_column_at_end():
     )
     batches_2 = (
         (
-            ((2, 'b', 'c'), my_table_2),
+            (my_table_2, (2, 'b', 'c')),
         ),
     )
     with engine.connect() as conn:
@@ -271,7 +271,7 @@ def test_migrate_add_column_not_at_end_no_data():
     )
     batches_1 = (
         (
-            ((1, 'a', 'b'), my_table_1),
+            (my_table_1, (1, 'a', 'b')),
         ),
     )
     with engine.connect() as conn:
@@ -317,7 +317,7 @@ def test_migrate_add_column_not_at_end_no_data():
     )
     batches_1 = (
         (
-            ((1, 'a', 'b'), my_table_1),
+            (my_table_1, (1, 'a', 'b')),
         ),
     )
     with engine.connect() as conn:
@@ -361,7 +361,7 @@ def test_insert():
     )
     batches_1 = (
         (
-            ((1,), my_table),
+            (my_table, (1,)),
         ),
     )
     with engine.connect() as conn:
@@ -369,7 +369,7 @@ def test_insert():
 
     batches_2 = (
         (
-            ((2,), my_table),
+            (my_table, (2,)),
         ),
     )
     with engine.connect() as conn:
@@ -398,7 +398,7 @@ def test_delete():
     )
     batches_1 = (
         (
-            ((1,), my_table),
+            (my_table, (1,)),
         ),
     )
     with engine.connect() as conn:
@@ -406,7 +406,7 @@ def test_delete():
 
     batches_2 = (
         (
-            ((2,), my_table),
+            (my_table, (2,)),
         ),
     )
     with engine.connect() as conn:
