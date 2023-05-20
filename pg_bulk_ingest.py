@@ -5,6 +5,7 @@ import sqlalchemy as sa
 import json
 from io import IOBase
 
+from pg_force_execute import pg_force_execute
 
 try:
     from psycopg2 import sql as sql2
@@ -23,7 +24,7 @@ Delete = Enum('Delete', [
 ])
 
 
-def ingest(conn, metadata, batches, delete=Delete.OFF):
+def ingest(conn, metadata, batches, delete=Delete.OFF, get_pg_force_execute=lambda conn: pg_force_execute(conn)):
 
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
@@ -49,6 +50,109 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
         return sa.text(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
+
+    def migrate_and_delete_if_necessary(conn, target_table, delete):
+        live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+        live_table_column_names = set(live_table.columns.keys())
+
+        live_table_column_names = set(live_table.columns.keys())
+
+        columns_first = tuple(
+            (col.name, repr(col.type), col.nullable, col.primary_key, col.index) for col in target_table.columns.values()
+        )
+        columns_live = tuple(
+            (col.name, repr(col.type), col.nullable, col.primary_key, col.index) for col in live_table.columns.values()
+        )
+        columns_to_drop = tuple(col for col in columns_live if col not in columns_first)
+        columns_to_add = tuple(col for col in columns_first if col not in columns_live)
+        must_migrate = columns_first != columns_live
+
+        columns_to_drop_obj = tuple(live_table.columns[col[0]] for col in columns_to_drop)
+        columns_to_add_obj = tuple(target_table.columns[col[0]] for col in columns_to_add)
+        migrate_in_place = must_migrate and \
+            all(col.nullable for col in columns_to_add_obj) \
+            and all(not col.primary_key for col in columns_to_drop_obj) \
+            and all(not col.primary_key for col in columns_to_add_obj) \
+            and all(not col.index for col in columns_to_drop_obj) \
+            and all(not col.index for col in columns_to_add_obj) \
+            and all(
+                i == len(columns_first) - 1 or col not in columns_to_add or columns_first[i+1] in columns_to_add
+                for i, col in enumerate(columns_first)
+            ) # All columns to add are at the end
+
+        via_migration_table = must_migrate and not migrate_in_place
+
+        if not via_migration_table and delete is Delete.ALL:
+            conn.execute(sa.delete(target_table))
+
+        if migrate_in_place:
+            alter_query = sql.SQL('''
+                ALTER TABLE {schema}.{table}
+                {statements}
+            ''').format(
+                schema=sql.Identifier(target_table.schema),
+                table=sql.Identifier(target_table.name),
+                statements=sql.SQL(',').join(
+                    tuple(
+                        sql.SQL('DROP COLUMN {column_name}').format(
+                            column_name=sql.Identifier(col.name),
+                        )
+                        for col in columns_to_drop_obj
+                    )
+                    + tuple(
+                        sql.SQL('ADD COLUMN {column_name} {column_type}').format(
+                            column_name=sql.Identifier(col.name),
+                            column_type=sql.SQL(col.type.compile(conn.engine.dialect)),
+                        )
+                        for col in columns_to_add_obj
+                    )
+                )
+            )
+            conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
+
+        elif via_migration_table:
+            migration_metadata = sa.MetaData()
+            migration_table = sa.Table(
+                uuid.uuid4().hex,
+                migration_metadata,
+                *(
+                    sa.Column(column.name, column.type, primary_key=column.primary_key)
+                    for column in target_table.columns
+                ),
+                schema=target_table.schema
+            )
+            migration_metadata.create_all(conn)
+            target_table_column_names = tuple(col.name for col in target_table.columns)
+            columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
+
+            if delete is Delete.OFF:
+                conn.execute(sa.insert(migration_table).from_select(
+                    tuple(col.name for col in columns_to_select),
+                    sa.select(*columns_to_select),
+                ))
+
+        table_to_ingest_into = migration_table if via_migration_table else live_table
+
+        return table_to_ingest_into
+
+    def swap_if_necessary(conn, outgoing_table, incoming_table):
+        assert outgoing_table.schema == incoming_table.schema
+
+        if outgoing_table.name != incoming_table.name:
+            # This requires an ACCESS EXCLUSIVE lock, which conflicts with everything, including
+            # SELECTs on the table. We prioritise ingests, and so terminate other clients that
+            # block this after a delay, which at the time of writing is 5 minutes
+            with get_pg_force_execute(conn):
+                outgoing_table.drop(conn)
+                rename_query = sql.SQL('''
+                    ALTER TABLE {schema}.{incoming_table_name}
+                    RENAME TO {outgoing_table_name}
+                ''').format(
+                    schema=sql.Identifier(outgoing_table.schema),
+                    incoming_table_name=sql.Identifier(incoming_table.name),
+                    outgoing_table_name=sql.Identifier(outgoing_table.name),
+                )
+                conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
@@ -146,31 +250,18 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
     ''', target_table.schema))
     metadata.create_all(conn)
 
-    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
-    live_table_column_names = set(live_table.columns.keys())
-
-    if delete is Delete.ALL:
-        conn.execute(sa.delete(target_table))
-
-    # Add missing columns
-    for column_name, column in target_table.columns.items():
-        if column_name not in live_table_column_names:
-            alter_query = sql.SQL('''
-                ALTER TABLE {schema}.{table}
-                ADD COLUMN {column_name} {column_type}
-            ''').format(
-                schema=sql.Identifier(target_table.schema),
-                table=sql.Identifier(target_table.name),
-                column_name=sql.Identifier(column_name),
-                column_type=sql.SQL(column.type.compile(conn.engine.dialect)),
-            )
-            conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
-
     is_upsert = any(column.primary_key for column in target_table.columns.values())
 
+    at_least_one_batch = False
     for batch in batches:
+        if not at_least_one_batch:
+            table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
+        else:
+            table_to_ingest_into = target_table
+        at_least_one_batch = True
+
         if not is_upsert:
-            csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
+            csv_copy(sql, copy_from_stdin, conn, target_table, table_to_ingest_into, batch)
         else:
             # Create a batch table, and ingest into it
             batch_metadata = sa.MetaData()
@@ -194,8 +285,8 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
-                schema=sql.Identifier(target_table.schema),
-                table=sql.Identifier(target_table.name),
+                schema=sql.Identifier(table_to_ingest_into.schema),
+                table=sql.Identifier(table_to_ingest_into.name),
                 batch_table=sql.Identifier(batch_table.name),
                 primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
                 updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
@@ -205,7 +296,14 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
             # Drop the batch table
             batch_metadata.drop_all(conn)
 
+            # Swap with live table if it's needed (i.e a migration table)
+            swap_if_necessary(conn, target_table, table_to_ingest_into)
+
         conn.commit()
         conn.begin()
+
+    if not at_least_one_batch:
+        migrate_table = migrate_and_delete_if_necessary(conn, target_table, delete)
+        swap_if_necessary(conn, target_table, migrate_table)
 
     conn.commit()
