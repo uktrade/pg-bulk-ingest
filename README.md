@@ -80,7 +80,7 @@ The API is a single function `ingest`, together with `HighWatermark`, `Visibilit
 
 `ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
 
-Ingests data into tables
+Ingests data into a table
 
 - `conn` - A [SQLAlchemy connection](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection) not in a transaction, i.e. started by `connection` rather than `begin`.
 
@@ -114,7 +114,7 @@ An enum to indicate when changes are visible to other database clients. Note tha
 
 `Delete`
 
-An Enum that controls how existing data in the tables is deleted
+An Enum that controls how existing data in the table is deleted
 
 - `OFF`
 
@@ -122,12 +122,12 @@ An Enum that controls how existing data in the tables is deleted
 
 - `ALL`
 
-   All existing data in the tables is deleted
+   All existing data in the table is deleted
 
 
 ## Data types
 
-The SQLAlchemy "CamelCase" data types are not supported in table definitions. Instead, you must used tables specified with "UPPERCASE" data types. These are non-abstracted database-level types. This is to support automatic migrations - the real database type is required in order to make a comparison with the live table and the one passed into the `ingest` function.
+The SQLAlchemy "CamelCase" data types are not supported in table definitions. Instead, you must use types specified with "UPPERCASE" data types. These are non-abstracted database-level types. This is to support automatic migrations - the real database type is required in order to make a comparison with the live table and the one passed into the `ingest` function.
 
 Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgresql.JSON` or `sa.dialects.postgresql.JSONB`.
 
