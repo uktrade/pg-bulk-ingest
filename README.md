@@ -39,8 +39,8 @@ metadata = sa.MetaData()
 my_table = sa.Table(
     "my_table",
     metadata,
-    sa.Column("id", sa.Integer, primary_key=True),
-    sa.Column("value", sa.String(16), nullable=False),
+    sa.Column("id", sa.INTEGER, primary_key=True),
+    sa.Column("value", sa.STRING(16), nullable=False),
     schema="my_schema",
 )
 
@@ -125,6 +125,13 @@ An Enum that controls how existing data in the tables is deleted
 - `ALL`
 
    All existing data in the tables is deleted
+
+
+## Data types
+
+The SQLAlchemy "CamelCase" data types are not supported in table definitions. Instead, you must used tables specified with "UPPERCASE" data types. These are non-abstracted database-level types. This is to support automatic migrations - the real database type is required in order to make a comparison with the live table and the one passed into the `ingest` function.
+
+Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgresql.JSON` or `sa.dialects.postgresql.JSONB`.
 
 
 ## Under the hood
