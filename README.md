@@ -65,15 +65,16 @@ def batches(high_watermark):
 with engine.connect() as conn:
     ingest(
         conn, metadata, batches,
-        high_watermark=HighWatermark.LATEST,                  # Carry on from where left off
-        ingest_mode=IngestMode.UPSERT_COMMITTING_EACH_BATCH,  # Upsert based on primary key if present, commit each batch
+        high_watermark=HighWatermark.LATEST,     # Carry on from where left off
+        visibility=Visibility.AFTER_EACH_BATCH,  # Changes are visible after each batch
+        delete=Delete.OFF,                       # Don't delete any existing rows
     )
 ```
 
 
 ## API
 
-The API is a single function `ingest`, together with `After` and `Mode` constants.
+The API is a single function `ingest`, together with `HighWatermark`, `Visibility`, and `Delete` enums.
 
 ---
 
@@ -87,9 +88,11 @@ Ingests data into tables
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
-- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is `HighWatermark.LATEST`, then the most high watermark that has most recently been ingested is passed into the `batches` function.
+- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is the `HighWatermark.LATEST`, the default, then the most high watermark that has most recently been ingested is passed into the `batches` function.
 
-- `ingest_mode` (optional) - The mode of the ingest that controls if existing data will be deleted, and when ingest will be visible to other clients.
+- `visibility` (optional) - When ingests will be visible to other clients.
+
+- `delete` (optional) - Whether or not to delete existing rows
 
 ---
 
@@ -101,21 +104,27 @@ An Enum to indicate to the `ingest` function how it should use any previously st
 
 ---
 
-`Mode`
+`Visibility`
 
-An Enum that controls how existing data in the table is treated, and when changes are visible to other database clients.
+An enum to indicate when changes are visible to other database clients
 
-- `UPSERT_COMMITTING_EACH_BATCH`
+- `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch
 
-   Each batch is visible to other clients as it's completed, and existing data is updated based on primary key. This is the default and usual happy path for ingest.
+- `AFTER_FINAL_BATCH` - changes are visible to ohter database clients after the final batch
 
-- `DELETE_ALL_ROWS_THEN_UPSERT_COMMITTING_EACH_BATCH`
+---
 
-   Existing data is deleted, and then behaves like `UPSERT_COMMITTING_EACH_BATCH`. Changes will be visible to other database clients after the first batch.
+`Delete`
 
-- `DELETE_ALL_ROWS_THEN_UPSERT_COMMITTING_AFTER_FINAL_BATCH`
+An Enum that controls how existing data in the tables is deleted
 
-   Existing data is deleted, then data is ingested, but no change is visible to other clients until after the final batch.
+- `OFF`
+
+   There is no deleting of existing data
+
+- `ALL`
+
+   All existing data in the tables is deleted
 
 
 ## Under the hood
