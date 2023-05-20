@@ -190,7 +190,7 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
             # ON CONFLICT to update any existing rows
             insert_query = sql.SQL('''
                 INSERT INTO {schema}.{table}
-                SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{batch_table}
+                SELECT * FROM {intermediate_schema}.{batch_table}
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
