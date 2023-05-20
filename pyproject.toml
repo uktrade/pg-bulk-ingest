@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pg-bulk-ingest"
-version = "0.0.7"
+version = "0.0.8"
 authors = [
   { name="Department for International Trade", email="sre@digital.trade.gov.uk" },
 ]
