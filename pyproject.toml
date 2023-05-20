@@ -17,7 +17,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "sqlalchemy>=1.4.24", 
+    "sqlalchemy>=1.4.24",
+    "pg-force-execute>=0.0.10",
 ]
 
 [project.optional-dependencies]
