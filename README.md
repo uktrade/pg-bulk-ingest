@@ -2,8 +2,6 @@
 
 A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, and minimising locking.
 
-> Work-in-progress. This README serves as a rough design spec
-
 
 ## Installation
 
@@ -49,13 +47,13 @@ my_table = sa.Table(
 # Each high watermark must be JSON-encodable
 # Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
-    if high_watermark < '2015-01-01',
+    if high_watermark is None or high_watermark < '2015-01-01',
         yield '2015-01-01', (
             (my_table, (3, 'a')),
             (my_table, (4, 'b')),
             (my_table, (5, 'c')),
         )
-    if high_watermark < '2015-01-02',
+    if high_watermark is None or high_watermark < '2015-01-02',
         yield '2015-01-02', (
             (my_table, (6, 'd')),
             (my_table, (7, 'e')),

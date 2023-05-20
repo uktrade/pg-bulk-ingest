@@ -313,6 +313,34 @@ def test_high_watermark_is_preserved_if_exception():
     assert high_watermarks == [None, 3, 6, 7]
 
 
+def test_high_watermark_is_passed_into_the_batch_function():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+
+    def batches(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield (high_watermark or 0) + 1, ()
+        yield (high_watermark or 0) + 2, ()
+        yield (high_watermark or 0) + 3, ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, high_watermark=10)
+
+    assert high_watermarks == [10]
+
+
 def test_migrate_add_column_at_end():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 

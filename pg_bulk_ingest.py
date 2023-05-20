@@ -271,8 +271,12 @@ def ingest(conn, metadata, batches,
     except (TypeError, ValueError):
         comment_parsed = {}
 
+    high_watermark_value = \
+        comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark is HighWatermark.LATEST else\
+        high_watermark
+
     at_least_one_batch = False
-    for high_watermark, batch in batches(comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark')):
+    for high_watermark_value, batch in batches(high_watermark_value):
         if not at_least_one_batch:
             table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
         else:
@@ -319,7 +323,7 @@ def ingest(conn, metadata, batches,
             swap_if_necessary(conn, target_table, table_to_ingest_into)
 
             comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
-            comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark
+            comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
             conn.execute(sa.text(sql.SQL('''
                  COMMENT ON TABLE {schema}.{table} IS {comment}
             ''').format(
