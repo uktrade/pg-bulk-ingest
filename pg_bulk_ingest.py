@@ -50,7 +50,7 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    def csv_copy(sql, copy_from_stdin, conn, user_facing_table, intermediate_table, rows):
+    def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
         def get_converter(sa_type):
 
@@ -125,14 +125,14 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
 
             return FileLikeObj()
 
-        converters = tuple(get_converter(column.type) for column in intermediate_table.columns)
+        converters = tuple(get_converter(column.type) for column in batch_table.columns)
         db_rows = (
             '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
             for row, row_table in rows
             if row_table is user_facing_table
         )
         with conn.connection.driver_connection.cursor() as cursor:
-            copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows, str))
+            copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
 
     if len(metadata.tables) > 1:
         raise ValueError('Only one table supported')
@@ -172,39 +172,39 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
         if not is_upsert:
             csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
         else:
-            # Create the intermediate tables, and ingest into them
-            intermediate_metadata = sa.MetaData()
-            intermediate_table = sa.Table(
+            # Create a batch table, and ingest into it
+            batch_metadata = sa.MetaData()
+            batch_table = sa.Table(
                 uuid.uuid4().hex,
-                intermediate_metadata,
+                batch_metadata,
                 *(
                     sa.Column(column.name, column.type, primary_key=column.primary_key)
                     for column in target_table.columns
                 ),
                 schema=target_table.schema
             )
-            intermediate_metadata.create_all(conn)
-            csv_copy(sql, copy_from_stdin, conn, target_table, intermediate_table, batch)
+            batch_metadata.create_all(conn)
+            csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
 
-            # Copy from that intermediate table into the main table, using
+            # Copy from that batch table into the target table, using
             # ON CONFLICT to update any existing rows
             insert_query = sql.SQL('''
                 INSERT INTO {schema}.{table}
-                SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{intermediate_table}
+                SELECT DISTINCT ON({primary_keys}) * FROM {intermediate_schema}.{batch_table}
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
                 schema=sql.Identifier(target_table.schema),
                 table=sql.Identifier(target_table.name),
-                intermediate_schema=sql.Identifier(intermediate_table.schema),
-                intermediate_table=sql.Identifier(intermediate_table.name),
+                intermediate_schema=sql.Identifier(batch_table.schema),
+                batch_table=sql.Identifier(batch_table.name),
                 primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
                 updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
             )
             conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
-            # Drop the intermediate table
-            intermediate_metadata.drop_all(conn)
+            # Drop the batch table
+            batch_metadata.drop_all(conn)
 
         conn.commit()
         conn.begin()
