@@ -28,7 +28,7 @@ For example:
 
 ```python
 import sqlalchemy as sa
-from pg_bulk_ingest import Mode, After, ingest
+from pg_bulk_ingest import HighWatermark, Visibility, Delete, ingest
 
 # Run postgresql locally should allow the below to run
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
@@ -78,7 +78,7 @@ The API is a single function `ingest`, together with `HighWatermark`, `Visibilit
 
 ---
 
-`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, ingest_mode=IngestMode.UPSERT_COMMITTING_EACH_BATCH)
+`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
 
 Ingests data into tables
 

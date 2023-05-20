@@ -17,13 +17,13 @@ except ImportError:
     sql3 = None
 
 
-Mode = Enum('Mode', [
-    'UPSERT_AND_COMMIT_EACH_BATCH',
-    'DELETE_ALL_ROWS_THEN_UPSERT_AND_COMMIT_EACH_BATCH',
+Delete = Enum('Delete', [
+    'OFF',
+    'ALL',
 ])
 
 
-def ingest(conn, metadata, batches, mode=Mode.UPSERT_AND_COMMIT_EACH_BATCH):
+def ingest(conn, metadata, batches, delete=Delete.OFF):
 
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
@@ -147,7 +147,7 @@ def ingest(conn, metadata, batches, mode=Mode.UPSERT_AND_COMMIT_EACH_BATCH):
     live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
 
-    if mode is Mode.DELETE_ALL_ROWS_THEN_UPSERT_AND_COMMIT_EACH_BATCH:
+    if delete is Delete.ALL:
         conn.execute(sa.delete(first_table))
 
     # Add missing columns
@@ -164,9 +164,7 @@ def ingest(conn, metadata, batches, mode=Mode.UPSERT_AND_COMMIT_EACH_BATCH):
             )
             conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
 
-    is_upsert = \
-        mode is Mode.UPSERT_AND_COMMIT_EACH_BATCH \
-        and any(column.primary_key for column in first_table.columns.values())
+    is_upsert = any(column.primary_key for column in first_table.columns.values())
 
     for batch in batches:
         if not is_upsert:
