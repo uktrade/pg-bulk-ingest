@@ -106,7 +106,7 @@ An Enum to indicate to the `ingest` function how it should use any previously st
 
 `Visibility`
 
-An enum to indicate when changes are visible to other database clients
+An enum to indicate when changes are visible to other database clients. Note that schema changes become visible in all cases even if there are no batches.
 
 - `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch
 
