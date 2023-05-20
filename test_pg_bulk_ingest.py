@@ -14,7 +14,7 @@ except ImportError:
 
 engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
 
-from pg_bulk_ingest import Mode, ingest
+from pg_bulk_ingest import Delete, ingest
 
 
 def test_upsert():
@@ -291,7 +291,7 @@ def test_replace():
         )
     )
     with engine.connect() as conn:
-        ingest(conn, metadata_obj, updated_rows, mode=Mode.DELETE_ALL_ROWS_THEN_UPSERT_AND_COMMIT_EACH_BATCH)
+        ingest(conn, metadata_obj, updated_rows, delete=Delete.ALL)
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
