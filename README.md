@@ -78,7 +78,7 @@ The API is a single function `ingest`, together with `HighWatermark`, `Visibilit
 
 ---
 
-`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, ingest_mode=IngestMode.UPSERT_COMMITTING_EACH_BATCH)
+`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
 
 Ingests data into tables
 
