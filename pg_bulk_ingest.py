@@ -18,6 +18,10 @@ except ImportError:
     sql3 = None
 
 
+HighWatermark = Enum('HighWatermark', [
+    'LATEST'
+])
+
 Delete = Enum('Delete', [
     'OFF',
     'ALL',
@@ -29,7 +33,7 @@ Visibility = Enum('Visibility', [
 
 
 def ingest(conn, metadata, batches,
-           visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
+           high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
            get_pg_force_execute=lambda conn: pg_force_execute(conn),
 ):
 
@@ -259,8 +263,20 @@ def ingest(conn, metadata, batches,
 
     is_upsert = any(column.primary_key for column in target_table.columns.values())
 
+    comment = conn.execute(bind_identifiers(sql, conn, '''
+         SELECT obj_description('{}.{}'::regclass, 'pg_class')
+    ''', target_table.schema, target_table.name)).fetchall()[0][0]
+    try:
+        comment_parsed = json.loads(comment)
+    except (TypeError, ValueError):
+        comment_parsed = {}
+
+    high_watermark_value = \
+        comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark is HighWatermark.LATEST else\
+        high_watermark
+
     at_least_one_batch = False
-    for batch in batches:
+    for high_watermark_value, batch in batches(high_watermark_value):
         if not at_least_one_batch:
             table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
         else:
@@ -305,6 +321,16 @@ def ingest(conn, metadata, batches,
 
             # Swap with live table if it's needed (i.e a migration table)
             swap_if_necessary(conn, target_table, table_to_ingest_into)
+
+            comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
+            comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
+            conn.execute(sa.text(sql.SQL('''
+                 COMMENT ON TABLE {schema}.{table} IS {comment}
+            ''').format(
+                schema=sql.Identifier(target_table.schema),
+                table=sql.Identifier(target_table.name),
+                comment=sql.Literal(json.dumps(comment_parsed))
+            ).as_string(conn.connection.driver_connection)))
 
         conn.commit()
         conn.begin()

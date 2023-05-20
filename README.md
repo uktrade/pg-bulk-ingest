@@ -2,8 +2,6 @@
 
 A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, and minimising locking.
 
-> Work-in-progress. This README serves as a rough design spec
-
 
 ## Installation
 
@@ -44,18 +42,18 @@ my_table = sa.Table(
     schema="my_schema",
 )
 
-# A function that yields batches of data, where each batch is
-# a tuple of of (high watermark, data rows). The batches must all
-# be strictly _after_ the high watermark passed into the function
-# Each row much have the SQLAlchemy table associated with it
+# A function that yields batches of data, where each batch is a tuple of of (high watermark, data rows).
+# The batches must all be strictly _after_ the high watermark passed into the function
+# Each high watermark must be JSON-encodable
+# Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
-    if high_watermark < '2015-01-01',
+    if high_watermark is None or high_watermark < '2015-01-01',
         yield '2015-01-01', (
             (my_table, (3, 'a')),
             (my_table, (4, 'b')),
             (my_table, (5, 'c')),
         )
-    if high_watermark < '2015-01-02',
+    if high_watermark is None or high_watermark < '2015-01-02',
         yield '2015-01-02', (
             (my_table, (6, 'd')),
             (my_table, (7, 'e')),
@@ -139,6 +137,7 @@ Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgre
 - The table is migrated to match the definition, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
 - If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table, unless a migration requires it.
 - If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the first batch. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
+- The high watermark is stored on the table as a COMMENT, JSON-encoded.
 
 
 ## Compatibility
