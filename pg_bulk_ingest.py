@@ -23,8 +23,15 @@ Delete = Enum('Delete', [
     'ALL',
 ])
 
+Visibility = Enum('Visibility', [
+    'AFTER_EACH_BATCH',
+])
 
-def ingest(conn, metadata, batches, delete=Delete.OFF, get_pg_force_execute=lambda conn: pg_force_execute(conn)):
+
+def ingest(conn, metadata, batches,
+           visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
+           get_pg_force_execute=lambda conn: pg_force_execute(conn),
+):
 
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
