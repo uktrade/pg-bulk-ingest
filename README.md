@@ -39,7 +39,7 @@ my_table = sa.Table(
     "my_table",
     metadata,
     sa.Column("id", sa.INTEGER, primary_key=True),
-    sa.Column("value", sa.STRING(16), nullable=False),
+    sa.Column("value", sa.VARCHAR(16), nullable=False),
     schema="my_schema",
 )
 
