@@ -134,56 +134,57 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", intermediate_table.schema, intermediate_table.name)), to_file_like_obj(db_rows, str))
 
+    if len(metadata.tables) > 1:
+        raise ValueError('Only one table supported')
+
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
     # Create the target table
-    for table in metadata.tables.values():
-        conn.execute(bind_identifiers(sql, conn, '''
-            CREATE SCHEMA IF NOT EXISTS {}
-        ''', table.schema))
+    target_table = next(iter(metadata.tables.values()))
+    conn.execute(bind_identifiers(sql, conn, '''
+        CREATE SCHEMA IF NOT EXISTS {}
+    ''', target_table.schema))
     metadata.create_all(conn)
 
-    first_table = next(iter(metadata.tables.values()))
-    live_table = sa.Table(first_table.name, sa.MetaData(), schema=first_table.schema, autoload_with=conn)
+    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
     live_table_column_names = set(live_table.columns.keys())
 
     if delete is Delete.ALL:
-        conn.execute(sa.delete(first_table))
+        conn.execute(sa.delete(target_table))
 
     # Add missing columns
-    for column_name, column in first_table.columns.items():
+    for column_name, column in target_table.columns.items():
         if column_name not in live_table_column_names:
             alter_query = sql.SQL('''
                 ALTER TABLE {schema}.{table}
                 ADD COLUMN {column_name} {column_type}
             ''').format(
-                schema=sql.Identifier(first_table.schema),
-                table=sql.Identifier(first_table.name),
+                schema=sql.Identifier(target_table.schema),
+                table=sql.Identifier(target_table.name),
                 column_name=sql.Identifier(column_name),
                 column_type=sql.SQL(column.type.compile(conn.engine.dialect)),
             )
             conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
 
-    is_upsert = any(column.primary_key for column in first_table.columns.values())
+    is_upsert = any(column.primary_key for column in target_table.columns.values())
 
     for batch in batches:
         if not is_upsert:
-            csv_copy(sql, copy_from_stdin, conn, first_table, first_table, batch)
+            csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
         else:
             # Create the intermediate tables, and ingest into them
             intermediate_metadata = sa.MetaData()
-            intermediate_tables = tuple(sa.Table(
+            intermediate_table = sa.Table(
                 uuid.uuid4().hex,
                 intermediate_metadata,
                 *(
                     sa.Column(column.name, column.type, primary_key=column.primary_key)
-                    for column in table.columns
+                    for column in target_table.columns
                 ),
-                schema=table.schema
-            ) for table in tuple(metadata.tables.values()))
+                schema=target_table.schema
+            )
             intermediate_metadata.create_all(conn)
-            first_intermediate_table = intermediate_tables[0]
-            csv_copy(sql, copy_from_stdin, conn, first_table, first_intermediate_table, batch)
+            csv_copy(sql, copy_from_stdin, conn, target_table, intermediate_table, batch)
 
             # Copy from that intermediate table into the main table, using
             # ON CONFLICT to update any existing rows
@@ -193,12 +194,12 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
-                schema=sql.Identifier(first_table.schema),
-                table=sql.Identifier(first_table.name),
-                intermediate_schema=sql.Identifier(first_intermediate_table.schema),
-                intermediate_table=sql.Identifier(first_intermediate_table.name),
-                primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in first_table.columns if column.primary_key)),
-                updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in first_table.columns),
+                schema=sql.Identifier(target_table.schema),
+                table=sql.Identifier(target_table.name),
+                intermediate_schema=sql.Identifier(intermediate_table.schema),
+                intermediate_table=sql.Identifier(intermediate_table.name),
+                primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
+                updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
             )
             conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
