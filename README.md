@@ -65,10 +65,57 @@ def batches(high_watermark):
 with engine.connect() as conn:
     ingest(
         conn, metadata, batches,
-        after=After.HIGH_WATERMARK,             # Carry on from where left off
-        mode=Mode.UPSERT_AND_COMMIT_EACH_BATCH, # Upsert based on primary key if present, committing each batch
+        high_watermark=HighWatermark.LATEST,                  # Carry on from where left off
+        ingest_mode=IngestMode.UPSERT_COMMITTING_EACH_BATCH,  # Upsert based on primary key if present, commit each batch
     )
 ```
+
+
+## API
+
+The API is a single function `ingest`, together with `After` and `Mode` constants.
+
+---
+
+`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, ingest_mode=IngestMode.UPSERT_COMMITTING_EACH_BATCH)
+
+Ingests data into tables
+
+- `conn` - A [SQLAlchemy connection](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection) not in a transaction, i.e. started by `connection` rather than `begin`.
+
+- `metadata` - A SQLAlchemy metadata.
+
+- `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
+
+- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is `HighWatermark.LATEST`, then the most high watermark that has most recently been ingested is passed into the `batches` function.
+
+- `ingest_mode` (optional) - The mode of the ingest that controls if existing data will be deleted, and when ingest will be visible to other clients.
+
+---
+
+`HighWatermark`
+
+An Enum to indicate to the `ingest` function how it should use any previously stored high watermark. Its single member is:
+
+- `LATEST` - use the most recently high watermark, passing it to the batches function.
+
+---
+
+`Mode`
+
+An Enum that controls how existing data in the table is treated, and when changes are visible to other database clients.
+
+- `UPSERT_COMMITTING_EACH_BATCH`
+
+   Each batch is visible to other clients as it's completed, and existing data is updated based on primary key. This is the default and usual happy path for ingest.
+
+- `DELETE_ALL_ROWS_THEN_UPSERT_COMMITTING_EACH_BATCH`
+
+   Existing data is deleted, and then behaves like `UPSERT_COMMITTING_EACH_BATCH`. Changes will be visible to other database clients after the first batch.
+
+- `DELETE_ALL_ROWS_THEN_UPSERT_COMMITTING_AFTER_FINAL_BATCH`
+
+   Existing data is deleted, then data is ingested, but no change is visible to other clients until after the final batch.
 
 
 ## Under the hood
