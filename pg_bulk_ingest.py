@@ -239,7 +239,7 @@ def ingest(conn, metadata, batches,
         converters = tuple(get_converter(column.type) for column in batch_table.columns)
         db_rows = (
             '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
-            for row, row_table in rows
+            for row_table, row in rows
             if row_table is user_facing_table
         )
         with conn.connection.driver_connection.cursor() as cursor:
