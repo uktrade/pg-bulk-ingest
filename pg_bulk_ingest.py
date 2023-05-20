@@ -207,3 +207,5 @@ def ingest(conn, metadata, batches, delete=Delete.OFF):
 
         conn.commit()
         conn.begin()
+
+    conn.commit()
