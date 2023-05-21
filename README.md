@@ -73,7 +73,7 @@ with engine.connect() as conn:
 
 ## API
 
-The API is a single function `ingest`, together with `HighWatermark`, `Visibility`, and `Delete` enums.
+The API is a single function `ingest`, together with classes of string constants: `HighWatermark`, `Visibility`, and `Delete`. The constants are known strings rather than opaque identifiers to allow the strings to be easily passed from dynamic/non-Python environments.
 
 ---
 
@@ -87,7 +87,7 @@ Ingests data into a table
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
-- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is the `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function.
+- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function.
 
 - `visibility` (optional) - When ingests will be visible to other clients.
 
@@ -97,31 +97,31 @@ Ingests data into a table
 
 `HighWatermark`
 
-An Enum to indicate to the `ingest` function how it should use any previously stored high watermark. Its single member is:
+A class of constants to indicate to the `ingest` function how it should use any previously stored high watermark. Its single member is:
 
-- `LATEST` - use the most recently high watermark, passing it to the batches function.
+- `LATEST` - use the most recently high watermark, passing it to the batches function. This is the string `__LATEST__`.
 
 ---
 
 `Visibility`
 
-An enum to indicate when changes are visible to other database clients. Note that schema changes become visible even if there are no batches.
+A class of constants to indicate when changes are visible to other database clients. Note that schema changes become visible even if there are no batches.
 
-- `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch
+- `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch. This is the string `__AFTER_EACH_BATCH__`.
 
 ---
 
 `Delete`
 
-An Enum that controls how existing data in the table is deleted
+A class of constants that controls how existing data in the table is deleted
 
 - `OFF`
 
-   There is no deleting of existing data
+   There is no deleting of existing data. This is the string `__OFF__`.
 
 - `ALL`
 
-   All existing data in the table is deleted
+   All existing data in the table is deleted. This is the string `__ALL__`.
 
 
 ## Data types
