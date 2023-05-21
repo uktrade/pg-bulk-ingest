@@ -18,18 +18,22 @@ except ImportError:
     sql3 = None
 
 
-HighWatermark = Enum('HighWatermark', [
-    'LATEST'
-])
 
-Delete = Enum('Delete', [
-    'OFF',
-    'ALL',
-])
+class HighWatermark:
+    LATEST = '__LATEST__'
 
-Visibility = Enum('Visibility', [
-    'AFTER_EACH_BATCH',
-])
+
+class Delete:
+    OFF = '__OFF__'
+    ALL = '__ALL__'
+
+
+class HighWatermark:
+    LATEST = '__LATEST__'
+
+
+class Visibility:
+    AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
 
 def ingest(conn, metadata, batches,
@@ -93,7 +97,7 @@ def ingest(conn, metadata, batches,
 
         via_migration_table = must_migrate and not migrate_in_place
 
-        if not via_migration_table and delete is Delete.ALL:
+        if not via_migration_table and delete == Delete.ALL:
             conn.execute(sa.delete(target_table))
 
         if migrate_in_place:
@@ -136,7 +140,7 @@ def ingest(conn, metadata, batches,
             target_table_column_names = tuple(col.name for col in target_table.columns)
             columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
 
-            if delete is Delete.OFF:
+            if delete == Delete.OFF:
                 conn.execute(sa.insert(migration_table).from_select(
                     tuple(col.name for col in columns_to_select),
                     sa.select(*columns_to_select),
@@ -275,7 +279,7 @@ def ingest(conn, metadata, batches,
         comment_parsed = {}
 
     high_watermark_value = \
-        comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark is HighWatermark.LATEST else\
+        comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
         high_watermark
 
     table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
