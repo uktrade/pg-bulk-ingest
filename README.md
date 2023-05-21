@@ -87,11 +87,15 @@ Ingests data into a table
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
-- `high_watermark` (optional) - The high watermark passed into the `batches` function. If this is `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function.
+- `high_watermark` (optional) - A member of the `HighWatermark` class, or a JSON-encodable value.
 
-- `visibility` (optional) - When ingests will be visible to other clients.
+    If this is `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function. If there has been no previous ingest, `None` will be passed.
 
-- `delete` (optional) - If existing rows are to be deleted.
+    If this a JSON-encodable value other than `HighWatermark.LATEST`, then this value is passed directly to the `batches` function. This can be used to override any previous high-watermark. Existing data in the target table is not deleted unless specified by the `delete` parameter.
+
+- `visibility` (optional) - A member of the `Visibilty` class, controlling when ingests will be visible to other clients, 
+
+- `delete` (optional) - A member of the `Delete` class, controlling if existing rows are to be deleted.
 
 ---
 
