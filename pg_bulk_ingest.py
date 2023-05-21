@@ -70,17 +70,15 @@ def ingest(conn, metadata, batches,
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
 
-        live_table_column_names = set(live_table.columns.keys())
-
-        columns_first = tuple(
+        columns_target = tuple(
             (col.name, repr(col.type), col.nullable, col.primary_key, col.index) for col in target_table.columns.values()
         )
         columns_live = tuple(
             (col.name, repr(col.type), col.nullable, col.primary_key, col.index) for col in live_table.columns.values()
         )
-        columns_to_drop = tuple(col for col in columns_live if col not in columns_first)
-        columns_to_add = tuple(col for col in columns_first if col not in columns_live)
-        must_migrate = columns_first != columns_live
+        columns_to_drop = tuple(col for col in columns_live if col not in columns_target)
+        columns_to_add = tuple(col for col in columns_target if col not in columns_live)
+        must_migrate = columns_target != columns_live
 
         columns_to_drop_obj = tuple(live_table.columns[col[0]] for col in columns_to_drop)
         columns_to_add_obj = tuple(target_table.columns[col[0]] for col in columns_to_add)
@@ -91,8 +89,8 @@ def ingest(conn, metadata, batches,
             and all(not col.index for col in columns_to_drop_obj) \
             and all(not col.index for col in columns_to_add_obj) \
             and all(
-                i == len(columns_first) - 1 or col not in columns_to_add or columns_first[i+1] in columns_to_add
-                for i, col in enumerate(columns_first)
+                i == len(columns_target) - 1 or col not in columns_to_add or columns_target[i+1] in columns_to_add
+                for i, col in enumerate(columns_target)
             ) # All columns to add are at the end
 
         via_migration_table = must_migrate and not migrate_in_place
