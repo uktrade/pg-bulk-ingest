@@ -18,6 +18,16 @@ engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('
 from pg_bulk_ingest import Delete, ingest
 
 
+def _get_table_oid(engine, table):
+    with engine.connect() as conn:
+        return conn.execute(sa.text(sql.SQL('''
+             SELECT (quote_ident({schema}) || '.' || quote_ident({table}))::regclass::oid
+        ''').format(
+            schema=sql.Literal(table.schema),
+            table=sql.Literal(table.name),
+        ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
+
+
 def test_data_types():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -201,6 +211,8 @@ def test_upsert():
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
+    oid_1 = _get_table_oid(engine, my_table)
+
     batches_2 = lambda _: (
         (
             None,
@@ -217,12 +229,15 @@ def test_upsert():
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id\"\'_2🍰')).fetchall()
 
+    oid_2 = _get_table_oid(engine, my_table)
+
     assert results == [
         (1, 2, 'a', 'b'),
         (3, 4, 'e', 'f'),
         (3, 6, 'g', 'h'),
     ]
 
+    assert oid_1 == oid_2
     assert len(metadata.tables) == 1
 
 
@@ -402,6 +417,8 @@ def test_migrate_add_column_at_end():
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
+    oid_1 = _get_table_oid(engine, my_table_1)
+
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
         my_table_1.name,
@@ -426,6 +443,8 @@ def test_migrate_add_column_at_end():
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
+    oid_2 = _get_table_oid(engine, my_table_2)
+
     assert batch_2_result == [
         (1, 'a', None),
     ]
@@ -434,6 +453,7 @@ def test_migrate_add_column_at_end():
         (2, 'b', 'c'),
     ]
 
+    assert oid_1 == oid_2
     assert len(metadata_1.tables) == 1
     assert len(metadata_2.tables) == 1
 
@@ -461,6 +481,8 @@ def test_migrate_add_column_not_at_end():
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
+    oid_1 = _get_table_oid(engine, my_table_1)
+
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
         my_table_1.name,
@@ -486,6 +508,8 @@ def test_migrate_add_column_not_at_end():
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
+    oid_2 = _get_table_oid(engine, my_table_2)
+
     assert batch_2_result == [
         (1, 'a', None, 'b'),
     ]
@@ -494,6 +518,7 @@ def test_migrate_add_column_not_at_end():
         (2, 'a', 'c', 'b'),
     ]
 
+    assert oid_1 != oid_2
     assert len(metadata_1.tables) == 1
     assert len(metadata_2.tables) == 1
 
