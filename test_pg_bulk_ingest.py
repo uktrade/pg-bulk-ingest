@@ -181,13 +181,13 @@ def test_upsert():
 
     metadata = sa.MetaData()
     my_table = sa.Table(
-        "my_table_" + uuid.uuid4().hex,
+        "mY_t\"\'able_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
-        sa.Column("id_2", sa.INTEGER, primary_key=True),
-        sa.Column("value_1", sa.VARCHAR),
-        sa.Column("value_2", sa.VARCHAR),
-        schema="my_schema",
+        sa.Column("id\"\'_2🍰", sa.INTEGER, primary_key=True),
+        sa.Column("Value_1🍰", sa.VARCHAR),
+        sa.Column("va\"'lue_2", sa.VARCHAR),
+        schema="my_Sche\"ma\'🍰",
     )
     batches_1 = lambda _: (
         (
@@ -215,7 +215,7 @@ def test_upsert():
             )
 
     with engine.connect() as conn:
-        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id\"\'_2🍰')).fetchall()
 
     assert results == [
         (1, 2, 'a', 'b'),

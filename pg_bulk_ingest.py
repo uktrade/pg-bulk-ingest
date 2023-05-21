@@ -263,9 +263,12 @@ def ingest(conn, metadata, batches,
 
     is_upsert = any(column.primary_key for column in target_table.columns.values())
 
-    comment = conn.execute(bind_identifiers(sql, conn, '''
-         SELECT obj_description('{}.{}'::regclass, 'pg_class')
-    ''', target_table.schema, target_table.name)).fetchall()[0][0]
+    comment = conn.execute(sa.text(sql.SQL('''
+         SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
+    ''').format(
+        schema=sql.Literal(target_table.schema),
+        table=sql.Literal(target_table.name),
+    ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
     try:
         comment_parsed = json.loads(comment)
     except (TypeError, ValueError):
