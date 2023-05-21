@@ -315,18 +315,18 @@ def ingest(conn, metadata, batches,
             # Drop the batch table
             batch_metadata.drop_all(conn)
 
-            comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
-            comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
-            conn.execute(sa.text(sql.SQL('''
-                 COMMENT ON TABLE {schema}.{table} IS {comment}
-            ''').format(
-                schema=sql.Identifier(table_to_ingest_into.schema),
-                table=sql.Identifier(table_to_ingest_into.name),
-                comment=sql.Literal(json.dumps(comment_parsed))
-            ).as_string(conn.connection.driver_connection)))
+        comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
+        comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
+        conn.execute(sa.text(sql.SQL('''
+             COMMENT ON TABLE {schema}.{table} IS {comment}
+        ''').format(
+            schema=sql.Identifier(table_to_ingest_into.schema),
+            table=sql.Identifier(table_to_ingest_into.name),
+            comment=sql.Literal(json.dumps(comment_parsed))
+        ).as_string(conn.connection.driver_connection)))
 
-            # Swap with live table if it's needed (i.e a migration table)
-            swap_if_necessary(conn, target_table, table_to_ingest_into)
+        # Swap with live table if it's needed (i.e a migration table)
+        swap_if_necessary(conn, target_table, table_to_ingest_into)
 
         table_to_ingest_into = target_table
         at_least_one_batch = True
