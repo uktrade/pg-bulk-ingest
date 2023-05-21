@@ -70,8 +70,6 @@ def ingest(conn, metadata, batches,
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
 
-        live_table_column_names = set(live_table.columns.keys())
-
         columns_first = tuple(
             (col.name, repr(col.type), col.nullable, col.primary_key, col.index) for col in target_table.columns.values()
         )
