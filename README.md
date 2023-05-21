@@ -109,9 +109,9 @@ A class of constants to indicate to the `ingest` function how it should use any 
 
 `Visibility`
 
-A class of constants to indicate when changes are visible to other database clients. Note that schema changes become visible even if there are no batches.
+A class of constants to indicate when data changes are visible to other database clients. Schema changes become visible before the first batch.
 
-- `AFTER_EACH_BATCH` - changes are visible to other database clients after each batch. This is the string `__AFTER_EACH_BATCH__`.
+- `AFTER_EACH_BATCH` - data changes are visible to other database clients after each batch. This is the string `__AFTER_EACH_BATCH__`.
 
 ---
 
