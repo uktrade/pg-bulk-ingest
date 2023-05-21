@@ -14,13 +14,13 @@ pip install pg-bulk-ingest psycopg
 
 ## Usage
 
-The API is made of a single function, `ingest` that can be used to insert data into a table. This:
+Data ingest to a table is done through the function `ingest`. This function:
 
 - creates the table if necessary
 - migrates any existing table if necessary, minimising locking
 - inserts the incoming data into the table
-- if the table has a primary key, performs an "upsert" based matching on this primary key
-- handles "high-watermarking" to carry on from where the previous ingest finished
+- if the table has a primary key, performs an "upsert", matching on this primary key
+- handles "high-watermarking" to carry on from where a previous ingest finished or errored
 - optionally deletes all existing rows before ingestion
 
 For example:
