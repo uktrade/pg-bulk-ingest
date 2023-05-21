@@ -275,14 +275,10 @@ def ingest(conn, metadata, batches,
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark is HighWatermark.LATEST else\
         high_watermark
 
+    table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
     at_least_one_batch = False
-    for high_watermark_value, batch in batches(high_watermark_value):
-        if not at_least_one_batch:
-            table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
-        else:
-            table_to_ingest_into = target_table
-        at_least_one_batch = True
 
+    for high_watermark_value, batch in batches(high_watermark_value):
         if not is_upsert:
             csv_copy(sql, copy_from_stdin, conn, target_table, table_to_ingest_into, batch)
         else:
@@ -331,6 +327,9 @@ def ingest(conn, metadata, batches,
                 table=sql.Identifier(target_table.name),
                 comment=sql.Literal(json.dumps(comment_parsed))
             ).as_string(conn.connection.driver_connection)))
+
+        table_to_ingest_into = target_table
+        at_least_one_batch = True
 
         conn.commit()
         conn.begin()
