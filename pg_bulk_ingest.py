@@ -66,7 +66,7 @@ def ingest(conn, metadata, batches,
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    def migrate_and_delete_if_necessary(conn, target_table, delete):
+    def migrate_if_necessary(conn, target_table):
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
 
@@ -97,9 +97,6 @@ def ingest(conn, metadata, batches,
 
         via_migration_table = must_migrate and not migrate_in_place
 
-        if not via_migration_table and delete == Delete.ALL:
-            conn.execute(sa.delete(target_table))
-
         if migrate_in_place:
             alter_query = sql.SQL('''
                 ALTER TABLE {schema}.{table}
@@ -123,7 +120,11 @@ def ingest(conn, metadata, batches,
                     )
                 )
             )
-            conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
+            with get_pg_force_execute(conn):
+                conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
+
+            conn.commit()
+            conn.begin()
 
         elif via_migration_table:
             migration_metadata = sa.MetaData()
@@ -140,34 +141,25 @@ def ingest(conn, metadata, batches,
             target_table_column_names = tuple(col.name for col in target_table.columns)
             columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
 
-            if delete == Delete.OFF:
-                conn.execute(sa.insert(migration_table).from_select(
-                    tuple(col.name for col in columns_to_select),
-                    sa.select(*columns_to_select),
-                ))
+            conn.execute(sa.insert(migration_table).from_select(
+                tuple(col.name for col in columns_to_select),
+                sa.select(*columns_to_select),
+            ))
 
-        table_to_ingest_into = migration_table if via_migration_table else live_table
-
-        return table_to_ingest_into
-
-    def swap_if_necessary(conn, outgoing_table, incoming_table):
-        assert outgoing_table.schema == incoming_table.schema
-
-        if outgoing_table.name != incoming_table.name:
-            # This requires an ACCESS EXCLUSIVE lock, which conflicts with everything, including
-            # SELECTs on the table. We prioritise ingests, and so terminate other clients that
-            # block this after a delay, which at the time of writing is 5 minutes
             with get_pg_force_execute(conn):
-                outgoing_table.drop(conn)
+                target_table.drop(conn)
                 rename_query = sql.SQL('''
-                    ALTER TABLE {schema}.{incoming_table_name}
-                    RENAME TO {outgoing_table_name}
+                    ALTER TABLE {schema}.{migration_table}
+                    RENAME TO {target_table}
                 ''').format(
-                    schema=sql.Identifier(outgoing_table.schema),
-                    incoming_table_name=sql.Identifier(incoming_table.name),
-                    outgoing_table_name=sql.Identifier(outgoing_table.name),
+                    schema=sql.Identifier(migration_table.schema),
+                    migration_table=sql.Identifier(migration_table.name),
+                    target_table=sql.Identifier(target_table.name),
                 )
                 conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+
+            conn.commit()
+            conn.begin()
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
@@ -258,6 +250,8 @@ def ingest(conn, metadata, batches,
 
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
+    conn.begin()
+
     # Create the target table
     target_table = next(iter(metadata.tables.values()))
     conn.execute(bind_identifiers(sql, conn, '''
@@ -282,12 +276,15 @@ def ingest(conn, metadata, batches,
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
         high_watermark
 
-    table_to_ingest_into = migrate_and_delete_if_necessary(conn, target_table, delete)
-    at_least_one_batch = False
+
+    migrate_if_necessary(conn, target_table)
+
+    if delete == Delete.ALL:
+        conn.execute(sa.delete(target_table))
 
     for high_watermark_value, batch in batches(high_watermark_value):
         if not is_upsert:
-            csv_copy(sql, copy_from_stdin, conn, target_table, table_to_ingest_into, batch)
+            csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
         else:
             # Create a batch table, and ingest into it
             batch_metadata = sa.MetaData()
@@ -311,8 +308,8 @@ def ingest(conn, metadata, batches,
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
-                schema=sql.Identifier(table_to_ingest_into.schema),
-                table=sql.Identifier(table_to_ingest_into.name),
+                schema=sql.Identifier(target_table.schema),
+                table=sql.Identifier(target_table.name),
                 batch_table=sql.Identifier(batch_table.name),
                 primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
                 updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
@@ -327,22 +324,12 @@ def ingest(conn, metadata, batches,
         conn.execute(sa.text(sql.SQL('''
              COMMENT ON TABLE {schema}.{table} IS {comment}
         ''').format(
-            schema=sql.Identifier(table_to_ingest_into.schema),
-            table=sql.Identifier(table_to_ingest_into.name),
+            schema=sql.Identifier(target_table.schema),
+            table=sql.Identifier(target_table.name),
             comment=sql.Literal(json.dumps(comment_parsed))
         ).as_string(conn.connection.driver_connection)))
 
-        # Swap with live table if it's needed (i.e a migration table)
-        swap_if_necessary(conn, target_table, table_to_ingest_into)
-
-        table_to_ingest_into = target_table
-        at_least_one_batch = True
-
         conn.commit()
         conn.begin()
-
-    if not at_least_one_batch:
-        migrate_table = migrate_and_delete_if_necessary(conn, target_table, delete)
-        swap_if_necessary(conn, target_table, migrate_table)
 
     conn.commit()

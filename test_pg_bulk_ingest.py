@@ -411,23 +411,87 @@ def test_migrate_add_column_at_end():
         sa.Column("value_2", sa.VARCHAR),
         schema="my_schema",
     )
-    batches_2 = lambda _: (
-        (
-            None,
-            (
-                (my_table_2, (2, 'b', 'c')),
-            ),
-        ),
-    )
+    batch_2_result = None
+    def batches_2(_):
+        nonlocal batch_2_result
+        with engine.connect() as conn:
+            batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+
+        yield None, (
+            (my_table_2, (2, 'b', 'c')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
+    assert batch_2_result == [
+        (1, 'a', None),
+    ]
     assert results == [
         (1, 'a', None),
         (2, 'b', 'c'),
+    ]
+
+    assert len(metadata_1.tables) == 1
+    assert len(metadata_2.tables) == 1
+
+
+def test_migrate_add_column_not_at_end():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+    batches_1 = lambda _: (
+        (
+            None,
+            (
+                (my_table_1, (1, 'a', 'b')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_c", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+    batch_2_result = None
+    def batches_2(_):
+        nonlocal batch_2_result
+        with engine.connect() as conn:
+            batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+
+        yield None, (
+            (my_table_2, (2, 'a', 'c', 'b')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+
+    assert batch_2_result == [
+        (1, 'a', None, 'b'),
+    ]
+    assert results == [
+        (1, 'a', None, 'b'),
+        (2, 'a', 'c', 'b'),
     ]
 
     assert len(metadata_1.tables) == 1
