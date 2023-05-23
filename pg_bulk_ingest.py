@@ -66,7 +66,16 @@ def ingest(conn, metadata, batches,
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    def migrate_if_necessary(conn, target_table):
+    def save_comment(sql, conn, schema, table, comment):
+        conn.execute(sa.text(sql.SQL('''
+             COMMENT ON TABLE {schema}.{table} IS {comment}
+        ''').format(
+            schema=sql.Identifier(target_table.schema),
+            table=sql.Identifier(target_table.name),
+            comment=sql.Literal(comment),
+        ).as_string(conn.connection.driver_connection)))
+
+    def migrate_if_necessary(sql, conn, target_table, comment):
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
 
@@ -155,6 +164,8 @@ def ingest(conn, metadata, batches,
                     target_table=sql.Identifier(target_table.name),
                 )
                 conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+
+            save_comment(sql, conn, target_table.schema, target_table.name, comment)
 
             conn.commit()
             conn.begin()
@@ -274,8 +285,7 @@ def ingest(conn, metadata, batches,
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
         high_watermark
 
-
-    migrate_if_necessary(conn, target_table)
+    migrate_if_necessary(sql, conn, target_table, comment)
 
     if delete == Delete.ALL:
         conn.execute(sa.delete(target_table))
@@ -319,13 +329,7 @@ def ingest(conn, metadata, batches,
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
-        conn.execute(sa.text(sql.SQL('''
-             COMMENT ON TABLE {schema}.{table} IS {comment}
-        ''').format(
-            schema=sql.Identifier(target_table.schema),
-            table=sql.Identifier(target_table.name),
-            comment=sql.Literal(json.dumps(comment_parsed))
-        ).as_string(conn.connection.driver_connection)))
+        save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
         conn.commit()
         conn.begin()

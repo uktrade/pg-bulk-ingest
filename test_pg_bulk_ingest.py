@@ -523,6 +523,56 @@ def test_migrate_add_column_not_at_end():
     assert len(metadata_2.tables) == 1
 
 
+def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+    def batches_1(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield 1, ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_c", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+    def batches_2(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield from ()
+        raise Exception()
+
+    with pytest.raises(Exception):
+        with engine.connect() as conn:
+            ingest(conn, metadata_2, batches_2)
+
+    def batches_3(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield from ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_3)
+
+    assert high_watermarks == [None, 1, 1]
+
+
 def test_migrate_add_column_not_at_end_no_data():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
