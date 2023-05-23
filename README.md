@@ -142,7 +142,7 @@ Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgre
 - The table is migrated to match the definition, using techniques to avoid exclusively locking the table to allow parallel SELECT queries.
 - If the table has a primary key, then an "upsert" is performed. Data is ingested into an intermediate table, and an `INSERT ... ON CONFLICT(...) DO UPDATE` is performed to copy rows from this intermediate table to the existing table. This doesn't involve an exclusive lock on the live table.
 - If there is no known technique for a migration without a long-running exclusive lock, then an intermediate table is used, swapped with the live table at the end of the first batch. This swap does require an exclusive lock, but only for a short time. Backends that hold locks that conflict with this lock are forcably terminated after a delay.
-- The high watermark is stored on the table as a COMMENT, JSON-encoded.
+- The high watermark is stored on the table as a COMMENT, JSON-encoded. For example if the most recent high watermark is the string `2014-07-31`, then the comment would be `{"pg-bulk-ingest": {"high-watermark": "2014-07-31"}}`.
 
 
 ## Compatibility
