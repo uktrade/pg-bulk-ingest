@@ -66,6 +66,15 @@ def ingest(conn, metadata, batches,
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
+    def save_comment(sql, conn, schema, table, comment):
+        conn.execute(sa.text(sql.SQL('''
+             COMMENT ON TABLE {schema}.{table} IS {comment}
+        ''').format(
+            schema=sql.Identifier(target_table.schema),
+            table=sql.Identifier(target_table.name),
+            comment=sql.Literal(comment),
+        ).as_string(conn.connection.driver_connection)))
+
     def migrate_if_necessary(conn, target_table):
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
@@ -318,13 +327,7 @@ def ingest(conn, metadata, batches,
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
-        conn.execute(sa.text(sql.SQL('''
-             COMMENT ON TABLE {schema}.{table} IS {comment}
-        ''').format(
-            schema=sql.Identifier(target_table.schema),
-            table=sql.Identifier(target_table.name),
-            comment=sql.Literal(json.dumps(comment_parsed))
-        ).as_string(conn.connection.driver_connection)))
+        save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
         conn.commit()
         conn.begin()
