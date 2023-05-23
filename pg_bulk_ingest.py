@@ -274,7 +274,6 @@ def ingest(conn, metadata, batches,
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
         high_watermark
 
-
     migrate_if_necessary(conn, target_table)
 
     if delete == Delete.ALL:
