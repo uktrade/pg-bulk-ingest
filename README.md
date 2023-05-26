@@ -135,6 +135,36 @@ The SQLAlchemy "CamelCase" data types are not supported in table definitions. In
 Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgresql.JSON` or `sa.dialects.postgresql.JSONB`.
 
 
+## Indexes
+
+Indexes can be added by any of two mechanisms:
+
+1. Setting `index=True` on a column.
+
+    ```python
+    sa.Table(
+        "my_table",
+        metadata,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value", sa.VARCHAR(16), nullable=False, index=True),
+        schema="my_schema",
+    )
+    ```
+
+2. Passing `sqlalchemy.Index` objects after the column list when defining the table. The name of each index should be `None`, which allows SQLAlchemy to give it a name unlikely to conflict with other indexes.
+
+    ```python
+    sa.Table(
+        "my_table",
+        metadata,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value", sa.VARCHAR(16), nullable=False),
+        sa.Index(None, "value"),
+        schema="my_schema",
+    )
+    ```
+
+
 ## Under the hood
 
 - Ingestion is done exclusively with `COPY FROM`.
