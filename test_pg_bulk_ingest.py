@@ -458,6 +458,103 @@ def test_migrate_add_column_at_end():
     assert len(metadata_2.tables) == 1
 
 
+def test_migrate_add_index():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None,
+            (),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches)
+
+    oid_1 = _get_table_oid(engine, my_table_1)
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR, index=True),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches)
+
+    oid_2 = _get_table_oid(engine, my_table_2)
+
+    with engine.connect() as conn:
+        live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
+
+    indexes_live_table = tuple(repr(index) for index in live_table.indexes)
+    indexes_my_table_2 = tuple(repr(index) for index in my_table_2.indexes)
+
+    assert indexes_live_table == indexes_my_table_2
+    assert oid_1 != oid_2
+    assert len(metadata_1.tables) == 1
+    assert len(metadata_2.tables) == 1
+
+
+def test_migrate_remove_index():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR, index=True),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None,
+            (),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches)
+
+    oid_1 = _get_table_oid(engine, my_table_1)
+    with engine.connect() as conn:
+        live_table = sa.Table(my_table_1.name, sa.MetaData(), schema=my_table_1.schema, autoload_with=conn)
+    assert len(live_table.indexes) == 1
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches)
+
+    oid_2 = _get_table_oid(engine, my_table_2)
+
+    with engine.connect() as conn:
+        live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
+
+    assert len(live_table.indexes) == 0
+
+    assert oid_1 != oid_2
+    assert len(metadata_1.tables) == 1
+    assert len(metadata_2.tables) == 1
+
+
 def test_migrate_add_column_not_at_end():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
