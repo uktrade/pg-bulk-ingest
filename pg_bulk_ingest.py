@@ -79,8 +79,16 @@ def ingest(conn, metadata, batches,
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         live_table_column_names = set(live_table.columns.keys())
 
-        indexes_live_repr = set(repr(index) for index in live_table.indexes)
-        indexes_target_repr = set(repr(index) for index in target_table.indexes)
+        # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
+        # both in reflected tables, and when
+        def get_dialect_kwargs(index):
+            dialect_kwargs = dict(index.dialect_kwargs)
+            if 'postgresql_include' in dialect_kwargs and not dialect_kwargs['postgresql_include']:
+                del dialect_kwargs['postgresql_include']
+            return dialect_kwargs
+
+        indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
+        indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
 
         columns_target = tuple(
             (col.name, repr(col.type), col.nullable, col.primary_key) for col in target_table.columns.values()
@@ -157,7 +165,11 @@ def ingest(conn, metadata, batches,
             ))
 
             for index in target_table.indexes:
-                sa.Index(index.name, *(migration_table.columns[column.name] for column in index.columns)).create(bind=conn)
+                sa.Index(
+                    index.name,
+                    *(migration_table.columns[column.name] for column in index.columns),
+                    **index.dialect_kwargs,
+                ).create(bind=conn)
 
             with get_pg_force_execute(conn):
                 target_table.drop(conn)

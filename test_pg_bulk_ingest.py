@@ -506,6 +506,74 @@ def test_migrate_add_index():
     assert len(metadata_2.tables) == 1
 
 
+def test_migrate_add_gin_index():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.ARRAY(sa.VARCHAR)),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None,
+            (),
+        ),
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches)
+
+    oid_1 = _get_table_oid(engine, my_table_1)
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.ARRAY(sa.VARCHAR)),
+        sa.Index(None, "value_1", postgresql_using='gin'),
+        schema="my_schema",
+    )
+    assert next(iter(my_table_2.indexes)).dialect_kwargs['postgresql_using'] == 'gin'
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches)
+
+    oid_2 = _get_table_oid(engine, my_table_2)
+
+    with engine.connect() as conn:
+        live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
+
+    assert next(iter(live_table.indexes)).dialect_kwargs['postgresql_using'] == 'gin'
+
+    assert oid_1 != oid_2
+
+    metadata_3 = sa.MetaData()
+    my_table_3 = sa.Table(
+        my_table_1.name,
+        metadata_3,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.ARRAY(sa.VARCHAR)),
+        sa.Index(None, "value_1", postgresql_using='gin', postgresql_include=[]),
+        schema="my_schema",
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches)
+
+    oid_3 = _get_table_oid(engine, my_table_2)
+
+    with engine.connect() as conn:
+        live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
+
+    assert next(iter(live_table.indexes)).dialect_kwargs['postgresql_using'] == 'gin'
+
+    assert oid_2 == oid_3
+
+
 def test_migrate_remove_index():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
