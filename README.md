@@ -1,6 +1,8 @@
 # pg-bulk-ingest
 
-A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, and minimising locking.
+A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, allowing concurrent reads as much as possible.
+
+Allowing concurrent writes is not an aim of this function. This is designed for cases where PostgreSQL is used as a data warehouse, and the only writes to the table are from pg-bulk-ingest. It is assumed that there is only one pg-bulk-ingest running against a given table at any one time.
 
 
 ## Installation
