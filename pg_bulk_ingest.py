@@ -279,8 +279,45 @@ def ingest(conn, metadata, batches,
 
     conn.begin()
 
-    # Create the target table
+    # Validate the target types
     target_table = next(iter(metadata.tables.values()))
+    allowed_non_array_types = (
+        # Integer
+        sa.INTEGER,
+        sa.SMALLINT,
+        sa.BIGINT,
+        # Floating point
+        sa.REAL,
+        sa.DOUBLE_PRECISION,
+        # Exact numeric
+        sa.NUMERIC,
+        sa.DECIMAL,
+        # Text
+        sa.TEXT,
+        sa.VARCHAR,
+        # Date/times
+        sa.DATE,
+        sa.DATETIME,
+        # Binary
+        sa.BLOB,
+        # Boolean
+        sa.BOOLEAN,
+        # JSON
+        sa.dialects.postgresql.JSON,
+        sa.dialects.postgresql.JSONB,
+    )
+    for column in target_table.columns:
+        allowed = False
+        for t in allowed_non_array_types:
+            if isinstance(column.type, t):
+                allowed = True
+                break
+        if isinstance(column.type, sa.ARRAY) and isinstance(column.type.item_type, allowed_non_array_types):
+            allowed = True
+        if not allowed:
+            raise TypeError('{} not supported'.format(column.type))
+
+    # Create the target table
     conn.execute(bind_identifiers(sql, conn, '''
         CREATE SCHEMA IF NOT EXISTS {}
     ''', target_table.schema))
