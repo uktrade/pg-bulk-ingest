@@ -20,12 +20,13 @@ Data ingest to a table is done through the function `ingest`. This function:
 
 - creates the table if necessary
 - migrates any existing table if necessary, minimising locking
-- inserts the incoming data into the table
+- inserts the incoming data into the table in batches, where each batch is ingested in its own transaction
 - if the table has a primary key, performs an "upsert", matching on this primary key
 - handles "high-watermarking" to carry on from where a previous ingest finished or errored
 - optionally deletes all existing rows before ingestion
+- optionally calls a callback just before each batch is visible to other database clients
 
-For example:
+Full example:
 
 ```python
 import sqlalchemy as sa
@@ -45,27 +46,35 @@ my_table = sa.Table(
     schema="my_schema",
 )
 
-# A function that yields batches of data, where each is a tuple of of (high watermark, data rows).
+# A function that yields batches of data, where each is a tuple of of
+# (high watermark, batch metadata, data rows).
 # The batches must all be strictly _after_ the high watermark passed into the function
 # Each high watermark must be JSON-encodable
 # Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
     if high_watermark is None or high_watermark < '2015-01-01':
-        yield '2015-01-01', (
+        yield '2015-01-01', 'Any batch metadata', (
             (my_table, (3, 'a')),
             (my_table, (4, 'b')),
             (my_table, (5, 'c')),
         )
     if high_watermark is None or high_watermark < '2015-01-02':
-        yield '2015-01-02', (
+        yield '2015-01-02', 'Any other batch metadata', (
             (my_table, (6, 'd')),
             (my_table, (7, 'e')),
             (my_table, (8, 'f')),
         )
 
+def on_before_batch_visible(conn, batch_metadata):
+    # Can perform validation or update metadata table(s) just before each batch
+    # is visible to other database clients
+    # conn: is a SQLAlchemy connection in the same transaction as this batch
+    # batch_metadata: the metadata for this batch from the batches function
+
 with engine.connect() as conn:
     ingest(
         conn, metadata, batches,
+        on_before_batch_visible=on_before_batch_visible,
         high_watermark=HighWatermark.LATEST,     # Carry on from where left off
         visibility=Visibility.AFTER_EACH_BATCH,  # Changes are visible after each batch
         delete=Delete.OFF,                       # Don't delete any existing rows
@@ -88,6 +97,8 @@ Ingests data into a table
 - `metadata` - A SQLAlchemy metadata of a single table.
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
+
+- `on_before_batch_visible` (optional) - A function that takes a SQLAlchemy connection and batch_metadata, called just before each batch becomes visible. See Usage above for an example.
 
 - `high_watermark` (optional) - A member of the `HighWatermark` class, or a JSON-encodable value.
 
