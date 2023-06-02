@@ -45,7 +45,7 @@ def test_data_types():
     )
     batches = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {})),
                 (my_table, (5, 'b', None, [1,2], {}, {})),
@@ -76,13 +76,13 @@ def test_batches():
     )
     batches = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (1,)),
             ),
         ),
         (
-            None,
+            None, None,
             (
                 (my_table, (2,)),
             ),
@@ -148,12 +148,12 @@ def test_batch_visible_only_after_batch_complete():
             except sa.exc.ProgrammingError:
                 table_not_found_before_batch_1 = True
 
-        yield None, batch_1()
+        yield None, None, batch_1()
 
         with engine.connect() as conn:
             results_after_batch_1 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
-        yield None, batch_2()
+        yield None, None, batch_2()
         with engine.connect() as conn:
             results_after_batch_2 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
   
@@ -201,7 +201,7 @@ def test_upsert():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (1, 2, 'a', 'b')),
                 (my_table, (3, 4, 'c', 'd')),
@@ -215,7 +215,7 @@ def test_upsert():
 
     batches_2 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (3, 4, 'e', 'f')),
                 (my_table, (3, 6, 'g', 'h')),
@@ -259,9 +259,9 @@ def test_high_watermark_is_preserved_between_ingests():
 
     def batches(high_watermark):
         high_watermarks.append(high_watermark)
-        yield (high_watermark or 0) + 1, ()
-        yield (high_watermark or 0) + 2, ()
-        yield (high_watermark or 0) + 3, ()
+        yield (high_watermark or 0) + 1,  None,()
+        yield (high_watermark or 0) + 2,  None,()
+        yield (high_watermark or 0) + 3,  None,()
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
@@ -298,9 +298,9 @@ def test_high_watermark_is_preserved_between_ingests_no_primary_key():
 
     def batches(high_watermark):
         high_watermarks.append(high_watermark)
-        yield (high_watermark or 0) + 1, ()
-        yield (high_watermark or 0) + 2, ()
-        yield (high_watermark or 0) + 3, ()
+        yield (high_watermark or 0) + 1,  None, ()
+        yield (high_watermark or 0) + 2,  None, ()
+        yield (high_watermark or 0) + 3,  None, ()
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
@@ -337,10 +337,10 @@ def test_high_watermark_is_preserved_if_exception():
 
     def batches(high_watermark):
         high_watermarks.append(high_watermark)
-        yield (high_watermark or 0) + 1, ()
+        yield (high_watermark or 0) + 1, None, ()
         if (high_watermark or 0) > 4:
             raise Exception()
-        yield (high_watermark or 0) + 3, ()
+        yield (high_watermark or 0) + 3, None, ()
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
@@ -385,9 +385,9 @@ def test_high_watermark_is_passed_into_the_batch_function():
 
     def batches(high_watermark):
         high_watermarks.append(high_watermark)
-        yield (high_watermark or 0) + 1, ()
-        yield (high_watermark or 0) + 2, ()
-        yield (high_watermark or 0) + 3, ()
+        yield (high_watermark or 0) + 1,  None, ()
+        yield (high_watermark or 0) + 2,  None, ()
+        yield (high_watermark or 0) + 3,  None, ()
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches, high_watermark=10)
@@ -408,7 +408,7 @@ def test_migrate_add_column_at_end():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table_1, (1, 'a')),
             ),
@@ -434,7 +434,7 @@ def test_migrate_add_column_at_end():
         with engine.connect() as conn:
             batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
-        yield None, (
+        yield None, None, (
             (my_table_2, (2, 'b', 'c')),
         )
     with engine.connect() as conn:
@@ -471,7 +471,7 @@ def test_migrate_add_index():
     )
     batches = lambda _: (
         (
-            None,
+            None, None,
             (),
         ),
     )
@@ -519,7 +519,7 @@ def test_migrate_add_gin_index():
     )
     batches = lambda _: (
         (
-            None,
+            None, None,
             (),
         ),
     )
@@ -587,7 +587,7 @@ def test_migrate_remove_index():
     )
     batches = lambda _: (
         (
-            None,
+            None, None,
             (),
         ),
     )
@@ -637,7 +637,7 @@ def test_migrate_add_column_not_at_end():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table_1, (1, 'a', 'b')),
             ),
@@ -664,7 +664,7 @@ def test_migrate_add_column_not_at_end():
         with engine.connect() as conn:
             batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
-        yield None, (
+        yield None, None, (
             (my_table_2, (2, 'a', 'c', 'b')),
         )
     with engine.connect() as conn:
@@ -704,7 +704,7 @@ def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved():
     high_watermarks = []
     def batches_1(high_watermark):
         high_watermarks.append(high_watermark)
-        yield 1, ()
+        yield 1, None, ()
 
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
@@ -752,7 +752,7 @@ def test_migrate_add_column_not_at_end_no_data():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table_1, (1, 'a', 'b')),
             ),
@@ -801,7 +801,7 @@ def test_migrate_add_column_not_at_end_no_data():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table_1, (1, 'a', 'b')),
             ),
@@ -848,7 +848,7 @@ def test_insert():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (1,)),
             ),
@@ -859,7 +859,7 @@ def test_insert():
 
     batches_2 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (2,)),
             ),
@@ -891,7 +891,7 @@ def test_delete():
     )
     batches_1 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (1,)),
             ),
@@ -902,7 +902,7 @@ def test_delete():
 
     batches_2 = lambda _: (
         (
-            None,
+            None, None,
             (
                 (my_table, (2,)),
             ),
@@ -919,3 +919,51 @@ def test_delete():
     ]
 
     assert len(metadata.tables) == 1
+
+
+def test_on_before_batch_visible():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1,)),
+            ),
+        ),
+        (
+            None, None,
+            (
+                (my_table, (2,)),
+            ),
+        ),
+    )
+    results_in_batch_connection = []
+    results_out_of_batch_connections = []
+    def on_batch(conn, batch_metadata):
+        results_in_batch_connection.append(conn.execute(sa.select(my_table).order_by('integer')).fetchall())
+        with engine.connect() as conn_out:
+            try:
+                results_out_of_batch_connections.append(conn_out.execute(sa.select(my_table).order_by('integer')).fetchall())
+            except:
+                results_out_of_batch_connections.append([])
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, on_before_batch_visible=on_batch)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
+
+    assert results == [
+        (1,),
+        (2,),
+    ]
+    assert results_in_batch_connection == [[(1,)], [(1,), (2,)]]
+    assert results_out_of_batch_connections == [[], [(1,)]]
