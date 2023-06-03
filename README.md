@@ -65,16 +65,17 @@ def batches(high_watermark):
             (my_table, (8, 'f')),
         )
 
-def on_before_batch_visible(conn, batch_metadata):
-    # Can perform validation or update metadata table(s) just before each batch
+def on_before_visible(conn, batch_metadata):
+    # Can perform validation or update metadata table(s) just before data
     # is visible to other database clients
     # conn: is a SQLAlchemy connection in the same transaction as this batch
-    # batch_metadata: the metadata for this batch from the batches function
+    # batch_metadata: the metadata for the most recent batch from the batches
+    # function
 
 with engine.connect() as conn:
     ingest(
         conn, metadata, batches,
-        on_before_batch_visible=on_before_batch_visible,
+        on_before_visible=on_before_visible,
         high_watermark=HighWatermark.LATEST,     # Carry on from where left off
         visibility=Visibility.AFTER_EACH_BATCH,  # Changes are visible after each batch
         delete=Delete.OFF,                       # Don't delete any existing rows
@@ -88,7 +89,7 @@ The API is a single function `ingest`, together with classes of string constants
 
 ---
 
-`ingest`(conn, metadata, batches, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
+`ingest`(conn, metadata, batches, on_before_visible=lambda conn, latest_batch_metadata: None, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
 
 Ingests data into a table
 
@@ -98,7 +99,7 @@ Ingests data into a table
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
-- `on_before_batch_visible` (optional) - A function that takes a SQLAlchemy connection and batch_metadata, called just before each batch becomes visible. See Usage above for an example.
+- `on_before_visible` (optional) - A function that takes a SQLAlchemy connection in a transaction and batch metadata, called just before data becomes visible to other database clients. See Usage above for an example.
 
 - `high_watermark` (optional) - A member of the `HighWatermark` class, or a JSON-encodable value.
 

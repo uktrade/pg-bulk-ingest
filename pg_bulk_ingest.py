@@ -39,7 +39,7 @@ class Visibility:
 def ingest(conn, metadata, batches,
            high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
            get_pg_force_execute=lambda conn: pg_force_execute(conn),
-           on_before_batch_visible=lambda conn, batch_metadata: None,
+           on_before_visible=lambda conn, batch_metadata: None,
 ):
 
     def sql_and_copy_from_stdin(driver):
@@ -350,7 +350,7 @@ def ingest(conn, metadata, batches,
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
         save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
-        on_before_batch_visible(conn, batch_metadata)
+        on_before_visible(conn, batch_metadata)
         conn.commit()
         conn.begin()
 
