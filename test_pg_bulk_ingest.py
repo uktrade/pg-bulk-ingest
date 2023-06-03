@@ -947,7 +947,7 @@ def test_on_before_batch_visible():
     )
     results_in_batch_connection = []
     results_out_of_batch_connections = []
-    def on_batch(conn, batch_metadata):
+    def on_before_visible(conn, batch_metadata):
         results_in_batch_connection.append(conn.execute(sa.select(my_table).order_by('integer')).fetchall())
         with engine.connect() as conn_out:
             try:
@@ -956,7 +956,7 @@ def test_on_before_batch_visible():
                 results_out_of_batch_connections.append([])
 
     with engine.connect() as conn:
-        ingest(conn, metadata, batches, on_before_batch_visible=on_batch)
+        ingest(conn, metadata, batches, on_before_visible=on_before_visible)
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
