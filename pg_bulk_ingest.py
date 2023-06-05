@@ -330,17 +330,17 @@ def ingest(conn, metadata, batches,
             csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
         else:
             # Create a batch table, and ingest into it
-            batch_metadata = sa.MetaData()
+            batch_db_metadata = sa.MetaData()
             batch_table = sa.Table(
                 uuid.uuid4().hex,
-                batch_metadata,
+                batch_db_metadata,
                 *(
                     sa.Column(column.name, column.type, primary_key=column.primary_key)
                     for column in target_table.columns
                 ),
                 schema=target_table.schema
             )
-            batch_metadata.create_all(conn)
+            batch_db_metadata.create_all(conn)
             csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
 
             # Copy from that batch table into the target table, using
@@ -360,7 +360,7 @@ def ingest(conn, metadata, batches,
             conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
 
             # Drop the batch table
-            batch_metadata.drop_all(conn)
+            batch_db_metadata.drop_all(conn)
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value

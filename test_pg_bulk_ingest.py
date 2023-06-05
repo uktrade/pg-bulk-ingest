@@ -993,13 +993,13 @@ def test_on_before_batch_visible():
     )
     batches = lambda _: (
         (
-            None, None,
+            None, 'Batch metadata 1',
             (
                 (my_table, (1,)),
             ),
         ),
         (
-            None, None,
+            None, 'Batch metadata 2',
             (
                 (my_table, (2,)),
             ),
@@ -1007,8 +1007,10 @@ def test_on_before_batch_visible():
     )
     results_in_batch_connection = []
     results_out_of_batch_connections = []
+    batch_metadatas = []
     def on_before_visible(conn, batch_metadata):
         results_in_batch_connection.append(conn.execute(sa.select(my_table).order_by('integer')).fetchall())
+        batch_metadatas.append(batch_metadata)
         with engine.connect() as conn_out:
             try:
                 results_out_of_batch_connections.append(conn_out.execute(sa.select(my_table).order_by('integer')).fetchall())
@@ -1027,3 +1029,4 @@ def test_on_before_batch_visible():
     ]
     assert results_in_batch_connection == [[(1,)], [(1,), (2,)]]
     assert results_out_of_batch_connections == [[], [(1,)]]
+    assert batch_metadatas == ['Batch metadata 1', 'Batch metadata 2']
