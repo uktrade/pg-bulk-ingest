@@ -1,4 +1,5 @@
 import uuid
+from contextlib import contextmanager
 from enum import Enum
 
 import sqlalchemy as sa
@@ -88,8 +89,23 @@ def ingest(conn, metadata, batches,
                 del dialect_kwargs['postgresql_include']
             return dialect_kwargs
 
-        indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
-        indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
+        # Don't migrate if indexes only differ by name
+        # Only way discovered is to temporarily change the name in each index name object
+        @contextmanager
+        def ignored_name(indexes):
+            names = [index.name for index in indexes]
+            for index in indexes:
+                index.name = '__IGNORE__'
+            try:
+                yield
+            finally:
+                for name, index in zip(names, indexes):
+                    index.name = name
+        with \
+                ignored_name(live_table.indexes), \
+                ignored_name(target_table.indexes):
+            indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
+            indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
 
         columns_target = tuple(
             (col.name, repr(col.type), col.nullable, col.primary_key) for col in target_table.columns.values()
@@ -167,7 +183,7 @@ def ingest(conn, metadata, batches,
 
             for index in target_table.indexes:
                 sa.Index(
-                    index.name,
+                    None,
                     *(migration_table.columns[column.name] for column in index.columns),
                     **index.dialect_kwargs,
                 ).create(bind=conn)
