@@ -1,4 +1,5 @@
 import uuid
+from contextlib import contextmanager
 from datetime import date
 
 import pytest
@@ -98,6 +99,51 @@ def test_batches():
         (1,),
         (2,),
     ]
+
+
+def test_batches_with_long_index_name():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("very_long_column_name_even_longer", sa.INTEGER, index=True),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1,)),
+            ),
+        ),
+        (
+            None, None,
+            (
+                (my_table, (2,)),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('very_long_column_name_even_longer')).fetchall()
+
+    assert results == [
+        (1,),
+        (2,),
+    ]
+
+    oid_1 = _get_table_oid(engine, my_table)
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    oid_2 = _get_table_oid(engine, my_table)
+
+    assert oid_1 == oid_2
 
 
 def test_batch_visible_only_after_batch_complete():
@@ -497,8 +543,22 @@ def test_migrate_add_index():
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
 
-    indexes_live_table = tuple(repr(index) for index in live_table.indexes)
-    indexes_my_table_2 = tuple(repr(index) for index in my_table_2.indexes)
+    # Indexes must be the same up to their name, which is ignored
+    @contextmanager
+    def ignored_name(indexes):
+        names = [index.name for index in indexes]
+        for index in indexes:
+            index.name = '__IGNORE__'
+        try:
+            yield
+        finally:
+            for name, index in zip(names, indexes):
+                index.name = name
+    with \
+            ignored_name(live_table.indexes), \
+            ignored_name( my_table_2.indexes):
+        indexes_live_table = tuple(repr(index) for index in live_table.indexes)
+        indexes_my_table_2 = tuple(repr(index) for index in my_table_2.indexes)
 
     assert indexes_live_table == indexes_my_table_2
     assert oid_1 != oid_2
