@@ -1,4 +1,5 @@
 import uuid
+import logging
 from contextlib import contextmanager
 from enum import Enum
 
@@ -39,8 +40,9 @@ class Visibility:
 
 def ingest(conn, metadata, batches,
            high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
-           get_pg_force_execute=lambda conn: pg_force_execute(conn),
+           get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
            on_before_visible=lambda conn, batch_metadata: None,
+           logger=logging.getLogger("pg_bulk_ingest"),
 ):
 
     def sql_and_copy_from_stdin(driver):
@@ -133,6 +135,7 @@ def ingest(conn, metadata, batches,
         via_migration_table = must_migrate and not migrate_in_place
 
         if migrate_in_place:
+            logger.info('Migrating in place')
             alter_query = sql.SQL('''
                 ALTER TABLE {schema}.{table}
                 {statements}
@@ -155,13 +158,14 @@ def ingest(conn, metadata, batches,
                     )
                 )
             )
-            with get_pg_force_execute(conn):
+            with get_pg_force_execute(conn, logger):
                 conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
 
             conn.commit()
             conn.begin()
 
         elif via_migration_table:
+            ('Migrating via migration table')
             migration_metadata = sa.MetaData()
             migration_table = sa.Table(
                 uuid.uuid4().hex,
@@ -188,7 +192,7 @@ def ingest(conn, metadata, batches,
                     **index.dialect_kwargs,
                 ).create(bind=conn)
 
-            with get_pg_force_execute(conn):
+            with get_pg_force_execute(conn, logger):
                 target_table.drop(conn)
                 rename_query = sql.SQL('''
                     ALTER TABLE {schema}.{migration_table}
@@ -298,10 +302,12 @@ def ingest(conn, metadata, batches,
 
     # Create the target table
     target_table = next(iter(metadata.tables.values()))
+    logger.info('Creating target table %s', target_table)
     conn.execute(bind_identifiers(sql, conn, '''
         CREATE SCHEMA IF NOT EXISTS {}
     ''', target_table.schema))
     metadata.create_all(conn)
+    logger.info('Target table %s created', target_table)
 
     is_upsert = any(column.primary_key for column in target_table.columns.values())
 
@@ -323,13 +329,19 @@ def ingest(conn, metadata, batches,
     migrate_if_necessary(sql, conn, target_table, comment)
 
     if delete == Delete.ALL:
+        logger.info('Deleting target table %s', target_table)
         conn.execute(sa.delete(target_table))
+        logger.info('Target table %s deleted', target_table)
 
     for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
+        logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
         if not is_upsert:
+            logger.info('Ingesting without upsert')
             csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
         else:
+            logger.info('Ingesting with upsert')
             # Create a batch table, and ingest into it
+            logger.info('Creating and ingesting into batch table')
             batch_db_metadata = sa.MetaData()
             batch_table = sa.Table(
                 uuid.uuid4().hex,
@@ -342,9 +354,11 @@ def ingest(conn, metadata, batches,
             )
             batch_db_metadata.create_all(conn)
             csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
+            logger.info('Ingestion into batch table complete')
 
             # Copy from that batch table into the target table, using
             # ON CONFLICT to update any existing rows
+            logger.info('Copying from batch table to target table')
             insert_query = sql.SQL('''
                 INSERT INTO {schema}.{table}
                 SELECT * FROM {schema}.{batch_table}
@@ -358,16 +372,22 @@ def ingest(conn, metadata, batches,
                 updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
             )
             conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
+            logger.info('Copying from batch table to target table complete')
 
             # Drop the batch table
+            logger.info('Dropping batch table')
             batch_db_metadata.drop_all(conn)
+            logger.info('Batch table dropped')
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
         save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
+        logger.info('Calling on_before_visible callback')
         on_before_visible(conn, batch_metadata)
+        logger.info('Calling of on_before_visible callback complete')
         conn.commit()
+        logger.info('Ingestion of batch %s with high watermark value %s complete', batch_metadata, high_watermark_value)
         conn.begin()
 
     conn.commit()
