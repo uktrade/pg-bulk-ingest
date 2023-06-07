@@ -80,7 +80,10 @@ def ingest(conn, metadata, batches,
         ).as_string(conn.connection.driver_connection)))
 
     def migrate_if_necessary(sql, conn, target_table, comment):
+        logger.info('Finding existing columns of %s.%s', target_table.schema, target_table.name)
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+        logger.info('Existing columns of %s.%s are %s', target_table.schema, target_table.name, list(live_table.columns))
+
         live_table_column_names = set(live_table.columns.keys())
 
         # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
@@ -165,7 +168,7 @@ def ingest(conn, metadata, batches,
             conn.begin()
 
         elif via_migration_table:
-            ('Migrating via migration table')
+            logger.info('Migrating via migration table')
             migration_metadata = sa.MetaData()
             migration_table = sa.Table(
                 uuid.uuid4().hex,
@@ -302,15 +305,16 @@ def ingest(conn, metadata, batches,
 
     # Create the target table
     target_table = next(iter(metadata.tables.values()))
-    logger.info('Creating target table %s', target_table)
+    logger.info("Creating target table %s if it does't already exist", target_table)
     conn.execute(bind_identifiers(sql, conn, '''
         CREATE SCHEMA IF NOT EXISTS {}
     ''', target_table.schema))
     metadata.create_all(conn)
-    logger.info('Target table %s created', target_table)
+    logger.info('Target table %s created or already existed', target_table)
 
     is_upsert = any(column.primary_key for column in target_table.columns.values())
 
+    logger.info('Finding high-watermark of %s.%s', target_table.schema, target_table.name)
     comment = conn.execute(sa.text(sql.SQL('''
          SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
     ''').format(
@@ -325,6 +329,7 @@ def ingest(conn, metadata, batches,
     high_watermark_value = \
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
         high_watermark
+    logger.info('High-watermark of %s.%s is %s', target_table.schema, target_table.name, high_watermark_value)
 
     migrate_if_necessary(sql, conn, target_table, comment)
 
