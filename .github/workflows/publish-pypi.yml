@@ -23,16 +23,22 @@ jobs:
   pypi-publish:
     needs: ['build']
     environment: 'publish-pypi'
-
-    name: upload release to PyPI
-    runs-on: ubuntu-latest
-    permissions:
-      # IMPORTANT: this permission is mandatory for trusted publishing
-      id-token: write
     steps:
-      - uses: actions/download-artifact@v3
+    - name: Extract tag name
+      id: tag
+      run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_OUTPUT
+    - name: Update version in pyproject.toml
+      run: >-
+        sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.tag.outputs.VERSION }}/g" pyproject.toml
+      name: upload release to PyPI
+      runs-on: ubuntu-latest
+      permissions:
+        # IMPORTANT: this permission is mandatory for trusted publishing
+        id-token: write
+      steps:
+        - uses: actions/download-artifact@v3
 
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages_dir: artifact/
+        - name: Publish package distributions to PyPI
+          uses: pypa/gh-action-pypi-publish@release/v1
+          with:
+            packages_dir: artifact/
