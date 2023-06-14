@@ -20,7 +20,7 @@ jobs:
         with:
           path: ./dist
 
-  pypi-publish:
+  update-version:
     needs: ['build']
     environment: 'publish-pypi'
     steps:
@@ -30,7 +30,11 @@ jobs:
     - name: Update version in pyproject.toml
       run: >-
         sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.tag.outputs.VERSION }}/g" pyproject.toml
-    - name: upload release to PyPI
+
+  pypi-publish:
+    needs: ['build', 'update-version']
+    environment: 'publish-pypi'
+    name: upload release to PyPI
       runs-on: ubuntu-latest
       permissions:
         # IMPORTANT: this permission is mandatory for trusted publishing
