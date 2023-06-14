@@ -12,6 +12,10 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Update version in pyproject.toml from current git tag
+        run: >-
+          sed -i "s/0\\.0\\.0\\.dev0/${GITHUB_REF/refs\/tags\/v/}/g" pyproject.toml
+
       - run: |
           pip install build
           python -m build
@@ -23,22 +27,16 @@ jobs:
   pypi-publish:
     needs: ['build']
     environment: 'publish-pypi'
-    steps:
-    - name: Extract tag name
-      id: tag
-      run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_OUTPUT
-    - name: Update version in pyproject.toml
-      run: >-
-        sed -i "s/0\\.0\\.0\\.dev0/${{ steps.tag.outputs.VERSION }}/g" pyproject.toml
-    - name: upload release to PyPI
-      runs-on: ubuntu-latest
-      permissions:
-        # IMPORTANT: this permission is mandatory for trusted publishing
-        id-token: write
-      steps:
-        - uses: actions/download-artifact@v3
 
-        - name: Publish package distributions to PyPI
-          uses: pypa/gh-action-pypi-publish@release/v1
-          with:
-            packages_dir: artifact/
+    name: upload release to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v3
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages_dir: artifact/
