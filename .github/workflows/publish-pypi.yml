@@ -29,7 +29,7 @@ jobs:
       run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_OUTPUT
     - name: Update version in pyproject.toml
       run: >-
-        sed -i "s/{{VERSION_PLACEHOLDER}}/${{ steps.tag.outputs.VERSION }}/g" pyproject.toml
+        sed -i "s/0\\.0\\.0\\.dev0/${{ steps.tag.outputs.VERSION }}/g" pyproject.toml
     - name: upload release to PyPI
       runs-on: ubuntu-latest
       permissions:
