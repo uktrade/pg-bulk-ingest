@@ -82,6 +82,9 @@ def ingest(conn, metadata, batches,
     def migrate_if_necessary(sql, conn, target_table, comment):
         logger.info('Finding existing columns of %s.%s', target_table.schema, target_table.name)
         live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+        # Reflection can return a different server_default even if client code didn't set it
+        for column in live_table.columns.values():
+            column.server_default = None
         logger.info('Existing columns of %s.%s are %s', target_table.schema, target_table.name, list(live_table.columns))
 
         live_table_column_names = set(live_table.columns.keys())
@@ -174,7 +177,7 @@ def ingest(conn, metadata, batches,
                 uuid.uuid4().hex,
                 migration_metadata,
                 *(
-                    sa.Column(column.name, column.type, primary_key=column.primary_key)
+                    sa.Column(column.name, column.type, nullable=column.nullable, primary_key=column.primary_key)
                     for column in target_table.columns
                 ),
                 schema=target_table.schema
@@ -190,7 +193,7 @@ def ingest(conn, metadata, batches,
 
             for index in target_table.indexes:
                 sa.Index(
-                    None,
+                    uuid.uuid4().hex,
                     *(migration_table.columns[column.name] for column in index.columns),
                     **index.dialect_kwargs,
                 ).create(bind=conn)

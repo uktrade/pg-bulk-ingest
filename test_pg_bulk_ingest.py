@@ -531,7 +531,9 @@ def test_migrate_add_index():
         my_table_1.name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
-        sa.Column("value_1", sa.VARCHAR, index=True),
+        sa.Column("value_1",sa.VARCHAR),
+        sa.Index(None, "value_1"),
+        sa.Index(None, "value_1", "id"),
         schema="my_schema",
     )
 
@@ -542,6 +544,9 @@ def test_migrate_add_index():
 
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
+        # Reflection can return a different server_default even if client code didn't set it
+        for column in live_table.columns.values():
+            column.server_default = None
 
     # Indexes must be the same up to their name, which is ignored
     @contextmanager
@@ -557,8 +562,8 @@ def test_migrate_add_index():
     with \
             ignored_name(live_table.indexes), \
             ignored_name( my_table_2.indexes):
-        indexes_live_table = tuple(repr(index) for index in live_table.indexes)
-        indexes_my_table_2 = tuple(repr(index) for index in my_table_2.indexes)
+        indexes_live_table = set(tuple(repr(index) for index in live_table.indexes))
+        indexes_my_table_2 = set(tuple(repr(index) for index in my_table_2.indexes))
 
     assert indexes_live_table == indexes_my_table_2
     assert oid_1 != oid_2
