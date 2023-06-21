@@ -22,7 +22,7 @@ Data ingest to a table is done through the function `ingest`. This function:
 - migrates any existing table if necessary, minimising locking
 - inserts the incoming data into the table in batches, where each batch is ingested in its own transaction
 - if the table has a primary key, performs an "upsert", matching on this primary key
-- handles "high-watermarking" to carry on from where a previous ingest finished or errored
+- handles "high-watermarking" to carry on from where a previous ingest finished or errored, or to set pipeline to ingest from the start
 - optionally deletes all existing rows before ingestion
 - optionally calls a callback just before each batch is visible to other database clients
 
@@ -46,7 +46,7 @@ my_table = sa.Table(
     schema="my_schema",
 )
 
-# A function that yields batches of data, where each is a tuple of of
+# A function that yields batches of data, where each is a tuple of
 # (high watermark, batch metadata, data rows).
 # The batches must all be strictly _after_ the high watermark passed into the function
 # Each high watermark must be JSON-encodable
@@ -105,7 +105,9 @@ Ingests data into a table
 
     If this is `HighWatermark.LATEST`, then the most recent high watermark that been returned from a previous ingest's `batch` function whose corresponding batch has been succesfully ingested is passed into the `batches` function. If there has been no previous ingest, `None` will be passed.
 
-    If this a JSON-encodable value other than `HighWatermark.LATEST`, then this value is passed directly to the `batches` function. This can be used to override any previous high-watermark. Existing data in the target table is not deleted unless specified by the `delete` parameter.
+    If this is `HighWatermark.EARLIEST`, then None will be passed to the batches function as the high watermark. This would typically be used to re-ingest all of the data.
+
+    If this a JSON-encodable value other than `HighWatermark.LATEST` or `HighWatermark.EARLIEST`, then this value is passed directly to the `batches` function. This can be used to override any previous high-watermark. Existing data in the target table is not deleted unless specified by the `delete` parameter.
 
 - `visibility` (optional) - A member of the `Visibilty` class, controlling when ingests will be visible to other clients, 
 
