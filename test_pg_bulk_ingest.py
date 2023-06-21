@@ -16,7 +16,7 @@ except ImportError:
 
 engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
 
-from pg_bulk_ingest import Delete, ingest
+from pg_bulk_ingest import Delete, ingest, HighWatermark
 
 
 def _get_table_oid(engine, table):
@@ -1035,3 +1035,43 @@ def test_on_before_batch_visible():
     assert results_in_batch_connection == [[(1,)], [(1,), (2,)]]
     assert results_out_of_batch_connections == [[], [(1,)]]
     assert batch_metadatas == ['Batch metadata 1', 'Batch metadata 2']
+
+
+def test_high_watermark_with_earliest():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+
+    def batches(high_watermark):
+        assert high_watermark == None
+        high_watermarks.append(high_watermark)
+        yield (high_watermark or 0) + 1,  None,()
+        yield (high_watermark or 0) + 2,  None,()
+        yield (high_watermark or 0) + 3,  None,()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+
+    assert high_watermarks == [None]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+
+    assert high_watermarks == [None, None]
+
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+
+    assert high_watermarks == [None, None, None]

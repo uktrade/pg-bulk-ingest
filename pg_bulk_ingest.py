@@ -21,10 +21,6 @@ except ImportError:
 
 
 
-class HighWatermark:
-    LATEST = '__LATEST__'
-
-
 class Delete:
     OFF = '__OFF__'
     ALL = '__ALL__'
@@ -32,6 +28,7 @@ class Delete:
 
 class HighWatermark:
     LATEST = '__LATEST__'
+    EARLIEST = '__EARLIEST__'
 
 
 class Visibility:
@@ -331,6 +328,7 @@ def ingest(conn, metadata, batches,
 
     high_watermark_value = \
         comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
+        None if high_watermark == HighWatermark.EARLIEST else\
         high_watermark
     logger.info('High-watermark of %s.%s is %s', target_table.schema, target_table.name, high_watermark_value)
 
