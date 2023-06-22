@@ -1054,24 +1054,23 @@ def test_high_watermark_with_earliest():
     high_watermarks = []
 
     def batches(high_watermark):
-        assert high_watermark == None
         high_watermarks.append(high_watermark)
         yield (high_watermark or 0) + 1,  None,()
         yield (high_watermark or 0) + 2,  None,()
         yield (high_watermark or 0) + 3,  None,()
 
     with engine.connect() as conn:
-        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+        ingest(conn, metadata, batches, high_watermark="__EARLIEST__")
 
     assert high_watermarks == [None]
 
     with engine.connect() as conn:
-        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+        ingest(conn, metadata, batches, high_watermark="__EARLIEST__")
 
     assert high_watermarks == [None, None]
 
 
     with engine.connect() as conn:
-        ingest(conn, metadata, batches, high_watermark=HighWatermark.EARLIEST)
+        ingest(conn, metadata, batches, high_watermark="__EARLIEST__")
 
     assert high_watermarks == [None, None, None]

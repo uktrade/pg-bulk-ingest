@@ -326,10 +326,12 @@ def ingest(conn, metadata, batches,
     except (TypeError, ValueError):
         comment_parsed = {}
 
-    high_watermark_value = \
-        comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark') if high_watermark == HighWatermark.LATEST else\
-        None if high_watermark == HighWatermark.EARLIEST else\
-        high_watermark
+    if high_watermark == HighWatermark.LATEST:
+        high_watermark_value = comment_parsed.get('pg-bulk-ingest', {}).get('high-watermark')
+    elif high_watermark == HighWatermark.EARLIEST:
+        high_watermark_value = None
+    else:
+        high_watermark_value = high_watermark
     logger.info('High-watermark of %s.%s is %s', target_table.schema, target_table.name, high_watermark_value)
 
     migrate_if_necessary(sql, conn, target_table, comment)
