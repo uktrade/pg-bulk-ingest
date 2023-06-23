@@ -20,6 +20,10 @@ except ImportError:
     sql3 = None
 
 
+class Upsert:
+    OFF = '__OFF__'
+    IF_PRIMARY_KEY = '__IF_PRIMARY_KEY__'
+
 
 class Delete:
     OFF = '__OFF__'
@@ -35,11 +39,11 @@ class Visibility:
     AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
 
-def ingest(conn, metadata, batches,
-           high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF,
-           get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
-           on_before_visible=lambda conn, batch_metadata: None,
-           logger=logging.getLogger("pg_bulk_ingest"),
+def ingest(
+        conn, metadata, batches, high_watermark=HighWatermark.LATEST,
+        visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
+        get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
+        on_before_visible=lambda conn, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
 ):
 
     def sql_and_copy_from_stdin(driver):
@@ -312,7 +316,7 @@ def ingest(conn, metadata, batches,
     metadata.create_all(conn)
     logger.info('Target table %s created or already existed', target_table)
 
-    is_upsert = any(column.primary_key for column in target_table.columns.values())
+    is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
 
     logger.info('Finding high-watermark of %s.%s', target_table.schema, target_table.name)
     comment = conn.execute(sa.text(sql.SQL('''
