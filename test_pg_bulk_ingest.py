@@ -16,7 +16,7 @@ except ImportError:
 
 engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
 
-from pg_bulk_ingest import Delete, ingest, HighWatermark
+from pg_bulk_ingest import Delete, ingest, HighWatermark, Upsert
 
 
 def _get_table_oid(engine, table):
@@ -284,6 +284,58 @@ def test_upsert():
     ]
 
     assert oid_1 == oid_2
+    assert len(metadata.tables) == 1
+
+
+def test_upsert_off():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "mY_t\"\'able_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id\"\'_2🍰", sa.INTEGER, primary_key=True),
+        sa.Column("Value_1🍰", sa.VARCHAR),
+        sa.Column("va\"'lue_2", sa.VARCHAR),
+        schema="my_Sche\"ma\'🍰",
+    )
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1, 2, 'a', 'b')),
+                (my_table, (3, 4, 'c', 'd')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    oid_1 = _get_table_oid(engine, my_table)
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (3, 4, 'e', 'f')),
+                (my_table, (3, 6, 'g', 'h')),
+            ),
+        ),
+    )
+    with \
+            pytest.raises(Exception), \
+            engine.connect() as conn:
+        ingest(conn, metadata, batches_2, upsert=Upsert.OFF)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id\"\'_2🍰')).fetchall()
+
+    assert results == [
+        (1, 2, 'a', 'b'),
+        (3, 4, 'c', 'd'),
+    ]
+
     assert len(metadata.tables) == 1
 
 

@@ -144,6 +144,20 @@ A class of constants that controls how existing data in the table is deleted
    All existing data in the table is deleted. This is the string `__ALL__`.
 
 
+---
+
+`Upsert`
+
+A class of constants that enforces upserting data based on primary key
+
+- `OFF`
+
+   Allows upsert to switch off. This is the string `__OFF__`.
+
+- `IF_PRIMARY_KEY`
+
+   Upsert is enabled depending on existence of primary key, which is the default. This is the string `__IF_PRIMARY_KEY__`.
+
 ## Data types
 
 The SQLAlchemy "CamelCase" data types are not supported in table definitions. Instead, you must use types specified with "UPPERCASE" data types. These are non-abstracted database-level types. This is to support automatic migrations - the real database type is required in order to make a comparison with the live table and the one passed into the `ingest` function.
