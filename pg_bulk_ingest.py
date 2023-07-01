@@ -359,7 +359,7 @@ def ingest(
                 uuid.uuid4().hex,
                 batch_db_metadata,
                 *(
-                    sa.Column(column.name, column.type, primary_key=column.primary_key)
+                    sa.Column(column.name, column.type)
                     for column in target_table.columns
                 ),
                 schema=target_table.schema
@@ -367,6 +367,25 @@ def ingest(
             batch_db_metadata.create_all(conn)
             csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
             logger.info('Ingestion into batch table complete')
+
+            # check and remove any duplicates in the batch
+            logger.info('Check and remove any duplicates in the batch table')
+            dedup_query = sql.SQL('''
+                DELETE FROM {schema}.{batch_table} a USING (
+                    SELECT MIN(ctid) as ctid, {pk_columns}
+                    FROM {schema}.{batch_table}
+                    GROUP BY {pk_columns} HAVING COUNT(*) > 1
+                ) b
+                WHERE {clause}
+                AND a.ctid <> b.ctid
+            ''').format(
+                schema=sql.Identifier(target_table.schema),
+                batch_table=sql.Identifier(batch_table.name),
+                pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
+                clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns if column.primary_key))
+            )
+            conn.execute(sa.text(dedup_query.as_string(conn.connection.driver_connection)))
+            logger.info('Deduplicating batch table complete')
 
             # Copy from that batch table into the target table, using
             # ON CONFLICT to update any existing rows
