@@ -339,6 +339,62 @@ def test_upsert_off():
     assert len(metadata.tables) == 1
 
 
+def test_upsert_with_duplicates_in_batch():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "mY_t\"\'able_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("Value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_Schema",
+    )
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1, 2, 'a', 'b')),
+                (my_table, (3, 4, 'c', 'd')),
+                (my_table, (1, 2, 'a', 'b')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    oid_1 = _get_table_oid(engine, my_table)
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (3, 4, 'e', 'f')),
+                (my_table, (3, 6, 'g', 'h')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_2
+            )
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
+
+    oid_2 = _get_table_oid(engine, my_table)
+
+    assert results == [
+        (1, 2, 'a', 'b'),
+        (3, 4, 'e', 'f'),
+        (3, 6, 'g', 'h'),
+    ]
+
+    assert oid_1 == oid_2
+    assert len(metadata.tables) == 1
+
+
 def test_high_watermark_is_preserved_between_ingests():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
