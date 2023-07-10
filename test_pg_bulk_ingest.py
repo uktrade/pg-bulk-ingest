@@ -612,6 +612,32 @@ def test_migrate_add_column_at_end():
     assert len(metadata_2.tables) == 1
 
 
+def test_table_with_multiple_similar_indexes():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_1",
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("a", sa.VARCHAR),
+        sa.Column("b", sa.VARCHAR),
+        sa.Index(None, "a", "b"),
+        sa.Index(None, "a"),
+        schema="my_schema",
+    )
+    batches = lambda _: ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches)
+
+    # We're mostly just checking is that no exception is raised
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
+
+    assert results == []
+
+
 def test_migrate_add_index():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 

@@ -307,13 +307,24 @@ def ingest(
 
     conn.begin()
 
-    # Create the target table
+    # Create the target table without indexes, which are added later with
+    # with logic to avoid duplicate names
     target_table = next(iter(metadata.tables.values()))
     logger.info("Creating target table %s if it does't already exist", target_table)
     conn.execute(bind_identifiers(sql, conn, '''
         CREATE SCHEMA IF NOT EXISTS {}
     ''', target_table.schema))
-    metadata.create_all(conn)
+    initial_table_metadata = sa.MetaData()
+    initial_table = sa.Table(
+        target_table.name,
+        initial_table_metadata,
+        *(
+            sa.Column(column.name, column.type)
+            for column in target_table.columns
+        ),
+        schema=target_table.schema
+    )
+    initial_table_metadata.create_all(conn)
     logger.info('Target table %s created or already existed', target_table)
 
     is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
