@@ -358,7 +358,7 @@ def test_upsert_with_duplicates_in_batch():
             (
                 (my_table, (1, 2, 'a', 'b')),
                 (my_table, (3, 4, 'c', 'd')),
-                (my_table, (1, 2, 'a', 'b')),
+                (my_table, (1, 2, 'a', 'c')),
             ),
         ),
     )
@@ -386,7 +386,7 @@ def test_upsert_with_duplicates_in_batch():
     oid_2 = _get_table_oid(engine, my_table)
 
     assert results == [
-        (1, 2, 'a', 'b'),
+        (1, 2, 'a', 'c'),
         (3, 4, 'e', 'f'),
         (3, 6, 'g', 'h'),
     ]

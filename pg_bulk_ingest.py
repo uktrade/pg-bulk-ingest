@@ -383,7 +383,7 @@ def ingest(
             logger.info('Check and remove any duplicates in the batch table')
             dedup_query = sql.SQL('''
                 DELETE FROM {schema}.{batch_table} a USING (
-                    SELECT MIN(ctid) as ctid, {pk_columns}
+                    SELECT MAX(ctid) as ctid, {pk_columns}
                     FROM {schema}.{batch_table}
                     GROUP BY {pk_columns} HAVING COUNT(*) > 1
                 ) b
