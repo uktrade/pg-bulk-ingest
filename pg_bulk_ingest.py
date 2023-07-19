@@ -27,7 +27,7 @@ class Upsert:
 
 class Delete:
     OFF = '__OFF__'
-    ALL = '__ALL__'
+    BEFORE_FIRST_BATCH = '__BEFORE_FIRST_BATCH__'
 
 
 class HighWatermark:
@@ -351,13 +351,14 @@ def ingest(
 
     migrate_if_necessary(sql, conn, target_table, comment)
 
-    if delete == Delete.ALL:
-        logger.info('Deleting target table %s', target_table)
-        conn.execute(sa.delete(target_table))
-        logger.info('Target table %s deleted', target_table)
-
-    for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
+    for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
+
+        if i == 0 and delete == Delete.BEFORE_FIRST_BATCH:
+            logger.info('Deleting target table %s', target_table)
+            conn.execute(sa.delete(target_table))
+            logger.info('Target table %s deleted', target_table)
+
         if not is_upsert:
             logger.info('Ingesting without upsert')
             csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)

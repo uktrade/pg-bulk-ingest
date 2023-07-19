@@ -1108,7 +1108,17 @@ def test_delete():
         ),
     )
     with engine.connect() as conn:
-        ingest(conn, metadata, batches_2, delete=Delete.ALL)
+        ingest(conn, metadata, batches_2, delete=Delete.BEFORE_FIRST_BATCH)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
+
+    assert results == [
+        (2,),
+    ]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, lambda _: (), delete=Delete.BEFORE_FIRST_BATCH)
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
