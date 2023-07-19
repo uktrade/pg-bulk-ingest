@@ -139,9 +139,9 @@ A class of constants that controls how existing data in the table is deleted
 
    There is no deleting of existing data. This is the string `__OFF__`.
 
-- `ALL`
+- `BEFORE_FIRST_BATCH`
 
-   All existing data in the table is deleted. This is the string `__ALL__`.
+   All existing data in the table is deleted just before the first batch is ingested. If there are no batches, no data is deleted. This is the string `__BEFORE_FIRST_BATCH__`.
 
 
 ---
