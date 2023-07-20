@@ -30,7 +30,7 @@ Full example:
 
 ```python
 import sqlalchemy as sa
-from pg_bulk_ingest import HighWatermark, Visibility, Delete, ingest
+from pg_bulk_ingest import HighWatermark, Visibility, Upsert, Delete, ingest
 
 # Run postgresql locally should allow the below to run
 # docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
@@ -78,6 +78,7 @@ with engine.connect() as conn:
         on_before_visible=on_before_visible,
         high_watermark=HighWatermark.LATEST,     # Carry on from where left off
         visibility=Visibility.AFTER_EACH_BATCH,  # Changes are visible after each batch
+        upsert=Upsert.IF_PRIMARY_KEY,            # Upsert if there is a primary key
         delete=Delete.OFF,                       # Don't delete any existing rows
     )
 ```
