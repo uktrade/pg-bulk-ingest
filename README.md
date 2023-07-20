@@ -85,11 +85,11 @@ with engine.connect() as conn:
 
 ## API
 
-The API is a single function `ingest`, together with classes of string constants: `HighWatermark`, `Visibility`, and `Delete`. The constants are known strings rather than opaque identifiers to allow the strings to be easily passed from dynamic/non-Python environments.
+The API is a single function `ingest`, together with classes of string constants: `HighWatermark`, `Visibility`, `Upsert` and `Delete`. The constants are known strings rather than opaque identifiers to allow the strings to be easily passed from dynamic/non-Python environments.
 
 ---
 
-`ingest`(conn, metadata, batches, on_before_visible=lambda conn, latest_batch_metadata: None, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, delete=Delete.OFF)
+`ingest`(conn, metadata, batches, on_before_visible=lambda conn, latest_batch_metadata: None, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF)
 
 Ingests data into a table
 
@@ -109,7 +109,9 @@ Ingests data into a table
 
     If this a JSON-encodable value other than `HighWatermark.LATEST` or `HighWatermark.EARLIEST`, then this value is passed directly to the `batches` function. This can be used to override any previous high-watermark. Existing data in the target table is not deleted unless specified by the `delete` parameter.
 
-- `visibility` (optional) - A member of the `Visibilty` class, controlling when ingests will be visible to other clients, 
+- `visibility` (optional) - A member of the `Visibilty` class, controlling when ingests will be visible to other clients.
+
+- `upsert` (optional) - A member of the `Upsert` class, controlling whether an upsert is performed when ingesting data
 
 - `delete` (optional) - A member of the `Delete` class, controlling if existing rows are to be deleted.
 
@@ -143,20 +145,20 @@ A class of constants that controls how existing data in the table is deleted
 
    All existing data in the table is deleted just before the first batch is ingested. If there are no batches, no data is deleted. This is the string `__BEFORE_FIRST_BATCH__`.
 
-
 ---
 
 `Upsert`
 
-A class of constants that enforces upserting data based on primary key
+A class of constants that controls if upserting is performed
 
 - `OFF`
 
-   Allows upsert to switch off. This is the string `__OFF__`.
+   No upserting is performed. This is the string `__OFF__`.
 
 - `IF_PRIMARY_KEY`
 
-   Upsert is enabled depending on existence of primary key, which is the default. This is the string `__IF_PRIMARY_KEY__`.
+   If the table contains a primary key, an upsert based on that primary key is performed on ingest. If there is no primary key then a plain insert is performed. This is useful to avoid duplication if batches overlap. This is the string `__IF_PRIMARY_KEY__`.
+
 
 ## Data types
 
