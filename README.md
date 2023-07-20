@@ -52,14 +52,17 @@ my_table = sa.Table(
 # Each high watermark must be JSON-encodable
 # Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
-    if high_watermark is None or high_watermark < '2015-01-01':
-        yield '2015-01-01', 'Any batch metadata', (
+    batch_high_watermark = '2015-01-01'
+    if high_watermark is None or batch_high_watermark > high_watermark:
+        yield batch_high_watermark, 'Any batch metadata', (
             (my_table, (3, 'a')),
             (my_table, (4, 'b')),
             (my_table, (5, 'c')),
         )
-    if high_watermark is None or high_watermark < '2015-01-02':
-        yield '2015-01-02', 'Any other batch metadata', (
+
+    batch_high_watermark = '2015-01-02'
+    if high_watermark is None or batch_high_watermark > high_watermark:
+        yield batch_high_watermark, 'Any other batch metadata', (
             (my_table, (6, 'd')),
             (my_table, (7, 'e')),
             (my_table, (8, 'f')),
