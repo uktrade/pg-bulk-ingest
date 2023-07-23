@@ -177,16 +177,16 @@ Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgre
 
 Indexes can be added by passing `sqlalchemy.Index` objects after the column list when defining the table. The name of each index should be `None` - pg-bulk index chooses a random name so it does not conflict with other indexes.
 
-    ```python
-    sa.Table(
-        "my_table",
-        metadata,
-        sa.Column("id", sa.INTEGER, primary_key=True),
-        sa.Column("value", sa.VARCHAR(16), nullable=False),
-        sa.Index(None, "value"),
-        schema="my_schema",
-    )
-    ```
+```python
+sa.Table(
+    "my_table",
+    metadata,
+    sa.Column("id", sa.INTEGER, primary_key=True),
+    sa.Column("value", sa.VARCHAR(16), nullable=False),
+    sa.Index(None, "value"),
+    schema="my_schema",
+)
+```
 
 
 ## Under the hood
