@@ -48,7 +48,7 @@ my_table = sa.Table(
 
 # A function that yields batches of data, where each is a tuple of
 # (high watermark, batch metadata, data rows).
-# The batches must all be strictly _after_ the high watermark passed into the function
+# The batches should all be _after_ the high watermark passed into the function
 # Each high watermark must be JSON-encodable
 # Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
@@ -123,9 +123,11 @@ Ingests data into a table
 
 `HighWatermark`
 
-A class of constants to indicate to the `ingest` function how it should use any previously stored high watermark. Its single member is:
+A class of constants to indicate what high watermark should be passed into the batches function.
 
-- `LATEST` - use the most recently high watermark, passing it to the batches function. This is the string `__LATEST__`.
+- `LATEST` - pass the most recent high watermark yielded from the batches function from the previous ingest into the batches function. If there is no previous ingest, the Python value `None` is passed. This is the string `__LATEST__`.
+
+- `EARLIEST` - pass the Python value `None` into the batches function. This is the string `__EARLIEST__`.
 
 ---
 
