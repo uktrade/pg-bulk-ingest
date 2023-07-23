@@ -208,6 +208,15 @@ def ingest(
             ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
                 .as_string(conn.connection.driver_connection)
             )).fetchall()
+            for grantee in grantees:
+                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
+                    .format(
+                        schema_table=sql.Identifier(migration_table.schema, migration_table.name),
+                        user=sql.Identifier(grantee[0]),
+                    )
+                    .as_string(conn.connection.driver_connection))
+                )
+
             with get_pg_force_execute(conn, logger):
                 target_table.drop(conn)
                 rename_query = sql.SQL('''
@@ -219,15 +228,6 @@ def ingest(
                     target_table=sql.Identifier(target_table.name),
                 )
                 conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
-
-            for grantee in grantees:
-                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
-                    .format(
-                        schema_table=sql.Identifier(target_table.schema, target_table.name),
-                        user=sql.Identifier(grantee[0]),
-                    )
-                    .as_string(conn.connection.driver_connection))
-                )
 
             save_comment(sql, conn, target_table.schema, target_table.name, comment)
 
