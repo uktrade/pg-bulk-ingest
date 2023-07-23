@@ -25,6 +25,7 @@ jobs:
           - "postgres:13.0"
           - "postgres:14.0"
           - "postgres:15.0"
+          - "postgres:16beta2"
         # sqlalchemy 1.4 doesn't support psycopg3
         ci-extras:
           - ci-psycopg2-sqlalchemy1
