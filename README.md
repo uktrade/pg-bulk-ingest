@@ -201,7 +201,7 @@ Indexes can be added by passing `sqlalchemy.Index` objects after the column list
 
 ## Compatibility
 
-- Python >= 3.7.1 (tested on 3.7.1, 3.8.0, 3.9.0, 3.10.0, and 3.11.0)
+- Python >= 3.7.1 (tested on 3.7.1, 3.8.0, 3.9.0, 3.10.0, 3.11.0 and 3.12.0b3)
 - psycopg2 >= 2.9.2 or Psycopg 3 >= 3.1.4
 - SQLAlchemy >= 1.4.24 (tested on 1.4.24 and 2.0.0)
 - PostgreSQL >= 9.6 (tested on 9.6, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, and 16 Beta 2)
