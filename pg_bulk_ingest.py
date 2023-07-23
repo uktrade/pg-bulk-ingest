@@ -199,6 +199,15 @@ def ingest(
                     **index.dialect_kwargs,
                 ).create(bind=conn)
 
+            grantees = conn.execute(sa.text(sql.SQL('''
+                SELECT grantee
+                FROM information_schema.role_table_grants
+                WHERE table_schema = {schema} AND table_name = {table}
+                AND privilege_type = 'SELECT'
+                AND grantor != grantee
+            ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
+                .as_string(conn.connection.driver_connection)
+            )).fetchall()
             with get_pg_force_execute(conn, logger):
                 target_table.drop(conn)
                 rename_query = sql.SQL('''
@@ -210,6 +219,15 @@ def ingest(
                     target_table=sql.Identifier(target_table.name),
                 )
                 conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+
+            for grantee in grantees:
+                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
+                    .format(
+                        schema_table=sql.Identifier(target_table.schema, target_table.name),
+                        user=sql.Identifier(grantee[0]),
+                    )
+                    .as_string(conn.connection.driver_connection))
+                )
 
             save_comment(sql, conn, target_table.schema, target_table.name, comment)
 
