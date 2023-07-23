@@ -20,9 +20,9 @@ Data ingest to a table is done through the function `ingest`. This function:
 
 - creates the table if necessary
 - migrates any existing table if necessary, minimising locking
-- inserts the incoming data into the table in batches, where each batch is ingested in its own transaction
-- if the table has a primary key, performs an "upsert", matching on this primary key
+- ingests data in batches, where each batch is ingested in its own transaction
 - handles "high-watermarking" to carry on from where a previous ingest finished or errored, or to set pipeline to ingest from the start
+- optionally performs an "upsert", matching rows on primary key
 - optionally deletes all existing rows before ingestion
 - optionally calls a callback just before each batch is visible to other database clients
 
