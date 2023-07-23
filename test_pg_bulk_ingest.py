@@ -937,6 +937,71 @@ def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved():
     assert high_watermarks == [None, 1, 1]
 
 
+def test_migrate_add_column_not_at_end_permissions_preserved():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    my_table_1 = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_1(high_watermark):
+        yield 1, None, ((my_table_1, (1, 'a', 'b')),)
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    user_id = uuid.uuid4().hex[:16]
+    with engine.connect() as conn:
+        conn.execute(sa.text(sql.SQL('''
+             CREATE USER {user_id} WITH PASSWORD 'password';
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             GRANT CONNECT ON DATABASE postgres TO {user_id};
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             GRANT USAGE ON SCHEMA my_schema TO {user_id};
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.commit()
+        conn.execute(sa.text(sql.SQL('''
+             GRANT SELECT ON my_schema.{table} TO {user_id};
+        ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.commit()
+
+    user_engine = sa.create_engine(f'{engine_type}://{user_id}:password@127.0.0.1:5432/postgres', **engine_future)
+    with user_engine.connect() as conn:
+        results = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
+
+    assert results == [(1, 'a', 'b')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        my_table_1.name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_a", sa.VARCHAR),
+        sa.Column("value_c", sa.VARCHAR),
+        sa.Column("value_b", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_2(high_watermark):
+        yield from ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with user_engine.connect() as conn:
+        results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+
+    assert results == [(1, 'a', None, 'b')]
+
+
 def test_migrate_add_column_not_at_end_no_data():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
