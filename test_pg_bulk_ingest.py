@@ -986,55 +986,6 @@ def test_migrate_add_column_not_at_end_no_data():
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_column_not_at_end_no_data():
-    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
-
-    metadata_1 = sa.MetaData()
-    my_table_1 = sa.Table(
-        "my_table_" + uuid.uuid4().hex,
-        metadata_1,
-        sa.Column("id", sa.INTEGER, primary_key=True),
-        sa.Column("value_a", sa.VARCHAR),
-        sa.Column("value_b", sa.VARCHAR),
-        schema="my_schema",
-    )
-    batches_1 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_1, (1, 'a', 'b')),
-            ),
-        ),
-    )
-    with engine.connect() as conn:
-        ingest(conn, metadata_1, batches_1)
-
-    metadata_2 = sa.MetaData()
-    my_table_2 = sa.Table(
-        my_table_1.name,
-        metadata_2,
-        sa.Column("id", sa.INTEGER, primary_key=True),
-        sa.Column("value_a", sa.VARCHAR),
-        sa.Column("value_c", sa.VARCHAR),
-        sa.Column("value_b", sa.VARCHAR),
-        schema="my_schema",
-    )
-    batches_2 = lambda _: (
-    )
-    with engine.connect() as conn:
-        ingest(conn, metadata_2, batches_2)
-
-    with engine.connect() as conn:
-        results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
-
-    assert results == [
-        (1, 'a', None, 'b'),
-    ]
-
-    assert len(metadata_1.tables) == 1
-    assert len(metadata_2.tables) == 1
-
-
 def test_insert():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
