@@ -68,12 +68,12 @@ def batches(high_watermark):
             (my_table, (8, 'f')),
         )
 
-def on_before_visible(conn, batch_metadata):
+def on_before_visible(conn, ingest_table, batch_metadata):
     # Can perform validation or update metadata table(s) just before data
     # is visible to other database clients
     # conn: is a SQLAlchemy connection in the same transaction as this batch
-    # batch_metadata: the metadata for the most recent batch from the batches
-    # function
+    # ingest_table: the SQLAlchemy that data was ingested into
+    # batch_metadata: the metadata for the most recent batch from the batches function
 
 with engine.connect() as conn:
     ingest(

@@ -43,7 +43,7 @@ def ingest(
         conn, metadata, batches, high_watermark=HighWatermark.LATEST,
         visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
         get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
-        on_before_visible=lambda conn, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
+        on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
 ):
 
     def sql_and_copy_from_stdin(driver):
@@ -445,7 +445,7 @@ def ingest(
         save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
         logger.info('Calling on_before_visible callback')
-        on_before_visible(conn, batch_metadata)
+        on_before_visible(conn, target_table, batch_metadata)
         logger.info('Calling of on_before_visible callback complete')
         conn.commit()
         logger.info('Ingestion of batch %s with high watermark value %s complete', batch_metadata, high_watermark_value)
