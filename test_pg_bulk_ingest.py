@@ -1173,8 +1173,8 @@ def test_on_before_batch_visible():
     results_in_batch_connection = []
     results_out_of_batch_connections = []
     batch_metadatas = []
-    def on_before_visible(conn, batch_metadata):
-        results_in_batch_connection.append(conn.execute(sa.select(my_table).order_by('integer')).fetchall())
+    def on_before_visible(conn, ingest_table, batch_metadata):
+        results_in_batch_connection.append(conn.execute(sa.select(ingest_table).order_by('integer')).fetchall())
         batch_metadatas.append(batch_metadata)
         with engine.connect() as conn_out:
             try:
