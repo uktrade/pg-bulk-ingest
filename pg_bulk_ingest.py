@@ -80,159 +80,74 @@ def ingest(
             comment=sql.Literal(comment),
         ).as_string(conn.connection.driver_connection)))
 
-    def migrate_if_necessary(sql, conn, target_table, comment):
-        logger.info('Finding existing columns of %s.%s', target_table.schema, target_table.name)
-        live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
-        # Reflection can return a different server_default even if client code didn't set it
-        for column in live_table.columns.values():
-            column.server_default = None
-        logger.info('Existing columns of %s.%s are %s', target_table.schema, target_table.name, list(live_table.columns))
+    def create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table):
+        must_create_ingest_table = False
 
-        live_table_column_names = set(live_table.columns.keys())
+        if delete == Delete.BEFORE_FIRST_BATCH:
+            must_create_ingest_table = True
 
-        # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
-        # both in reflected tables, and when
-        def get_dialect_kwargs(index):
-            dialect_kwargs = dict(index.dialect_kwargs)
-            if 'postgresql_include' in dialect_kwargs and not dialect_kwargs['postgresql_include']:
-                del dialect_kwargs['postgresql_include']
-            return dialect_kwargs
+        if not must_create_ingest_table:
+            logger.info('Finding existing columns of %s.%s', target_table.schema, target_table.name)
+            # Reflection can return a different server_default even if client code didn't set it
+            for column in live_table.columns.values():
+                column.server_default = None
+            logger.info('Existing columns of %s.%s are %s', target_table.schema, target_table.name, list(live_table.columns))
 
-        # Don't migrate if indexes only differ by name
-        # Only way discovered is to temporarily change the name in each index name object
-        @contextmanager
-        def ignored_name(indexes):
-            names = [index.name for index in indexes]
-            for index in indexes:
-                index.name = '__IGNORE__'
-            try:
-                yield
-            finally:
-                for name, index in zip(names, indexes):
-                    index.name = name
-        with \
-                ignored_name(live_table.indexes), \
-                ignored_name(target_table.indexes):
-            indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
-            indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
+            live_table_column_names = set(live_table.columns.keys())
 
-        columns_target = tuple(
-            (col.name, repr(col.type), col.nullable, col.primary_key) for col in target_table.columns.values()
-        )
-        columns_live = tuple(
-            (col.name, repr(col.type), col.nullable, col.primary_key) for col in live_table.columns.values()
-        )
-        columns_to_drop = tuple(col for col in columns_live if col not in columns_target)
-        columns_to_add = tuple(col for col in columns_target if col not in columns_live)
-        columns_to_drop_obj = tuple(live_table.columns[col[0]] for col in columns_to_drop)
-        columns_to_add_obj = tuple(target_table.columns[col[0]] for col in columns_to_add)
+            # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
+            # both in reflected tables, and when
+            def get_dialect_kwargs(index):
+                dialect_kwargs = dict(index.dialect_kwargs)
+                if 'postgresql_include' in dialect_kwargs and not dialect_kwargs['postgresql_include']:
+                    del dialect_kwargs['postgresql_include']
+                return dialect_kwargs
 
-        must_migrate = indexes_target_repr != indexes_live_repr or columns_target != columns_live
+            # Don't migrate if indexes only differ by name
+            # Only way discovered is to temporarily change the name in each index name object
+            @contextmanager
+            def ignored_name(indexes):
+                names = [index.name for index in indexes]
+                for index in indexes:
+                    index.name = '__IGNORE__'
+                try:
+                    yield
+                finally:
+                    for name, index in zip(names, indexes):
+                        index.name = name
+            with \
+                    ignored_name(live_table.indexes), \
+                    ignored_name(target_table.indexes):
+                indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
+                indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
 
-        migrate_in_place = must_migrate \
-            and not indexes_target_repr != indexes_live_repr \
-            and all(col.nullable for col in columns_to_add_obj) \
-            and all(not col.primary_key for col in columns_to_drop_obj) \
-            and all(not col.primary_key for col in columns_to_add_obj) \
-            and all(
-                i == len(columns_target) - 1 or col not in columns_to_add or columns_target[i+1] in columns_to_add
-                for i, col in enumerate(columns_target)
-            ) # All columns to add are at the end
-
-        via_migration_table = must_migrate and not migrate_in_place
-
-        if migrate_in_place:
-            logger.info('Migrating in place')
-            alter_query = sql.SQL('''
-                ALTER TABLE {schema}.{table}
-                {statements}
-            ''').format(
-                schema=sql.Identifier(target_table.schema),
-                table=sql.Identifier(target_table.name),
-                statements=sql.SQL(',').join(
-                    tuple(
-                        sql.SQL('DROP COLUMN {column_name}').format(
-                            column_name=sql.Identifier(col.name),
-                        )
-                        for col in columns_to_drop_obj
-                    )
-                    + tuple(
-                        sql.SQL('ADD COLUMN {column_name} {column_type}').format(
-                            column_name=sql.Identifier(col.name),
-                            column_type=sql.SQL(col.type.compile(conn.engine.dialect)),
-                        )
-                        for col in columns_to_add_obj
-                    )
-                )
+            columns_target = tuple(
+                (col.name, repr(col.type), col.nullable, col.primary_key) for col in target_table.columns.values()
             )
-            with get_pg_force_execute(conn, logger):
-                conn.execute(sa.text(alter_query.as_string(conn.connection.driver_connection)))
-
-            conn.commit()
-            conn.begin()
-
-        elif via_migration_table:
-            logger.info('Migrating via migration table')
-            migration_metadata = sa.MetaData()
-            migration_table = sa.Table(
-                uuid.uuid4().hex,
-                migration_metadata,
-                *(
-                    sa.Column(column.name, column.type, nullable=column.nullable, primary_key=column.primary_key)
-                    for column in target_table.columns
-                ),
-                schema=target_table.schema
+            columns_live = tuple(
+                (col.name, repr(col.type), col.nullable, col.primary_key) for col in live_table.columns.values()
             )
-            migration_metadata.create_all(conn)
-            target_table_column_names = tuple(col.name for col in target_table.columns)
-            columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
 
-            conn.execute(sa.insert(migration_table).from_select(
-                tuple(col.name for col in columns_to_select),
-                sa.select(*columns_to_select),
-            ))
+            indexes_target_repr != indexes_live_repr or columns_target != columns_live
+            must_create_ingest_table = indexes_target_repr != indexes_live_repr or columns_target != columns_live
 
-            for index in target_table.indexes:
-                sa.Index(
-                    uuid.uuid4().hex,
-                    *(migration_table.columns[column.name] for column in index.columns),
-                    **index.dialect_kwargs,
-                ).create(bind=conn)
+        if not must_create_ingest_table:
+            return target_table
 
-            grantees = conn.execute(sa.text(sql.SQL('''
-                SELECT grantee
-                FROM information_schema.role_table_grants
-                WHERE table_schema = {schema} AND table_name = {table}
-                AND privilege_type = 'SELECT'
-                AND grantor != grantee
-            ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
-                .as_string(conn.connection.driver_connection)
-            )).fetchall()
-            for grantee in grantees:
-                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
-                    .format(
-                        schema_table=sql.Identifier(migration_table.schema, migration_table.name),
-                        user=sql.Identifier(grantee[0]),
-                    )
-                    .as_string(conn.connection.driver_connection))
-                )
+        logger.info('Ingesting via new ingest table')
+        ingest_metadata = sa.MetaData()
+        ingest_table = sa.Table(
+            uuid.uuid4().hex,
+            ingest_metadata,
+            *(
+                sa.Column(column.name, column.type, nullable=column.nullable, primary_key=column.primary_key)
+                for column in target_table.columns
+            ),
+            schema=target_table.schema
+        )
+        ingest_metadata.create_all(conn)
 
-            with get_pg_force_execute(conn, logger):
-                target_table.drop(conn)
-                rename_query = sql.SQL('''
-                    ALTER TABLE {schema}.{migration_table}
-                    RENAME TO {target_table}
-                ''').format(
-                    schema=sql.Identifier(migration_table.schema),
-                    migration_table=sql.Identifier(migration_table.name),
-                    target_table=sql.Identifier(target_table.name),
-                )
-                conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
-
-            save_comment(sql, conn, target_table.schema, target_table.name, comment)
-
-            conn.commit()
-            conn.begin()
+        return ingest_table
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
@@ -367,19 +282,25 @@ def ingest(
         high_watermark_value = high_watermark
     logger.info('High-watermark of %s.%s is %s', target_table.schema, target_table.name, high_watermark_value)
 
-    migrate_if_necessary(sql, conn, target_table, comment)
+    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
 
-    for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
+    ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
+
+    for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
+
+        if ingest_table is not target_table and delete == Delete.OFF:
+            target_table_column_names = tuple(col.name for col in target_table.columns)
+            columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
+            conn.execute(sa.insert(ingest_table).from_select(
+                tuple(col.name for col in columns_to_select),
+                sa.select(*columns_to_select),
+            ))
+
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
-
-        if i == 0 and delete == Delete.BEFORE_FIRST_BATCH:
-            logger.info('Deleting target table %s', target_table)
-            conn.execute(sa.delete(target_table))
-            logger.info('Target table %s deleted', target_table)
 
         if not is_upsert:
             logger.info('Ingesting without upsert')
-            csv_copy(sql, copy_from_stdin, conn, target_table, target_table, batch)
+            csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, batch)
         else:
             logger.info('Ingesting with upsert')
             # Create a batch table, and ingest into it
@@ -390,9 +311,9 @@ def ingest(
                 batch_db_metadata,
                 *(
                     sa.Column(column.name, column.type)
-                    for column in target_table.columns
+                    for column in ingest_table.columns
                 ),
-                schema=target_table.schema
+                schema=ingest_table.schema
             )
             batch_db_metadata.create_all(conn)
             csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
@@ -409,10 +330,10 @@ def ingest(
                 WHERE {clause}
                 AND a.ctid <> b.ctid
             ''').format(
-                schema=sql.Identifier(target_table.schema),
+                schema=sql.Identifier(batch_table.schema),
                 batch_table=sql.Identifier(batch_table.name),
-                pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
-                clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns if column.primary_key))
+                pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
+                clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns if column.primary_key))
             )
             conn.execute(sa.text(dedup_query.as_string(conn.connection.driver_connection)))
             logger.info('Deduplicating batch table complete')
@@ -426,11 +347,11 @@ def ingest(
                 ON CONFLICT({primary_keys})
                 DO UPDATE SET {updates}
             ''').format(
-                schema=sql.Identifier(target_table.schema),
-                table=sql.Identifier(target_table.name),
+                schema=sql.Identifier(ingest_table.schema),
+                table=sql.Identifier(ingest_table.name),
                 batch_table=sql.Identifier(batch_table.name),
-                primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in target_table.columns if column.primary_key)),
-                updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in target_table.columns),
+                primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
+                updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns),
             )
             conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
             logger.info('Copying from batch table to target table complete')
@@ -440,15 +361,59 @@ def ingest(
             batch_db_metadata.drop_all(conn)
             logger.info('Batch table dropped')
 
+        if ingest_table is not target_table:
+            for index in target_table.indexes:
+                logger.info("Creating index %s", index)
+                sa.Index(
+                    uuid.uuid4().hex,
+                    *(ingest_table.columns[column.name] for column in index.columns),
+                    **index.dialect_kwargs,
+                ).create(bind=conn)
+
+            grantees = conn.execute(sa.text(sql.SQL('''
+                SELECT grantee
+                FROM information_schema.role_table_grants
+                WHERE table_schema = {schema} AND table_name = {table}
+                AND privilege_type = 'SELECT'
+                AND grantor != grantee
+            ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
+                .as_string(conn.connection.driver_connection)
+            )).fetchall()
+            for grantee in grantees:
+                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
+                    .format(
+                        schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
+                        user=sql.Identifier(grantee[0]),
+                    )
+                    .as_string(conn.connection.driver_connection))
+                )
+
+        logger.info('Calling on_before_visible callback')
+        on_before_visible(conn, ingest_table, batch_metadata)
+        logger.info('Calling of on_before_visible callback complete')
+
+        if ingest_table is not target_table:
+            with get_pg_force_execute(conn, logger):
+                target_table.drop(conn)
+                rename_query = sql.SQL('''
+                    ALTER TABLE {schema}.{ingest_table}
+                    RENAME TO {target_table}
+                ''').format(
+                    schema=sql.Identifier(ingest_table.schema),
+                    ingest_table=sql.Identifier(ingest_table.name),
+                    target_table=sql.Identifier(target_table.name),
+                )
+                conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
         save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
 
-        logger.info('Calling on_before_visible callback')
-        on_before_visible(conn, target_table, batch_metadata)
-        logger.info('Calling of on_before_visible callback complete')
         conn.commit()
         logger.info('Ingestion of batch %s with high watermark value %s complete', batch_metadata, high_watermark_value)
         conn.begin()
+
+        # After the first batch, we always ingest into the target table
+        ingest_table = target_table
 
     conn.commit()

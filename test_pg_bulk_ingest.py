@@ -586,7 +586,7 @@ def test_migrate_add_column_at_end():
     def batches_2(_):
         nonlocal batch_2_result
         with engine.connect() as conn:
-            batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+            batch_2_result = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
 
         yield None, None, (
             (my_table_2, (2, 'b', 'c')),
@@ -600,14 +600,14 @@ def test_migrate_add_column_at_end():
     oid_2 = _get_table_oid(engine, my_table_2)
 
     assert batch_2_result == [
-        (1, 'a', None),
+        (1, 'a'),
     ]
     assert results == [
         (1, 'a', None),
         (2, 'b', 'c'),
     ]
 
-    assert oid_1 == oid_2
+    assert oid_1 != oid_2
     assert len(metadata_1.tables) == 1
     assert len(metadata_2.tables) == 1
 
@@ -861,7 +861,7 @@ def test_migrate_add_column_not_at_end():
     def batches_2(_):
         nonlocal batch_2_result
         with engine.connect() as conn:
-            batch_2_result = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+            batch_2_result = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
 
         yield None, None, (
             (my_table_2, (2, 'a', 'c', 'b')),
@@ -875,7 +875,7 @@ def test_migrate_add_column_not_at_end():
     oid_2 = _get_table_oid(engine, my_table_2)
 
     assert batch_2_result == [
-        (1, 'a', None, 'b'),
+        (1, 'a', 'b'),
     ]
     assert results == [
         (1, 'a', None, 'b'),
@@ -991,7 +991,7 @@ def test_migrate_add_column_not_at_end_permissions_preserved():
     )
 
     def batches_2(high_watermark):
-        yield from ()
+        yield (None, None, ())
 
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
@@ -1041,11 +1041,15 @@ def test_migrate_add_column_not_at_end_no_data():
         ingest(conn, metadata_2, batches_2)
 
     with engine.connect() as conn:
-        results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+        results = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
 
     assert results == [
-        (1, 'a', None, 'b'),
+        (1, 'a', 'b'),
     ]
+
+    with pytest.raises(Exception):
+        with engine.connect() as conn:
+            results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
     assert len(metadata_1.tables) == 1
     assert len(metadata_2.tables) == 1
