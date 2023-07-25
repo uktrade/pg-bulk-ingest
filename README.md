@@ -26,14 +26,22 @@ Data ingest to a table is done through the function `ingest`. This function:
 - optionally deletes all existing rows before ingestion
 - optionally calls a callback just before each batch is visible to other database clients
 
-Full example:
+### Example
+
+Ensure you have a PostgreSQL instance running. For example to test with Docker locally, on the command line run:
+
+```bash
+docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
+```
+
+Then in Python:
 
 ```python
 import sqlalchemy as sa
 from pg_bulk_ingest import HighWatermark, Visibility, Upsert, Delete, ingest
 
-# Run postgresql locally should allow the below to run
-# docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
+# This should work with the Docker example above, but would have to be changed
+# if using a PostgreSQL instance elsewhere or setup differently
 engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
 
 # A SQLAlchemy Metadata of a single table definition
