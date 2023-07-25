@@ -57,9 +57,10 @@ my_table = sa.Table(
 
 # A function that yields batches of data, where each is a tuple of
 # (high watermark, batch metadata, data rows).
-# The batches should all be _after_ the high watermark passed into the function
-# Each high watermark must be JSON-encodable
-# Each row must have the SQLAlchemy table associated with it
+# - The batches should all be _after_ the high watermark passed into the function
+# - Each high watermark must be JSON-encodable, or a callable that returns a
+#   JSON-encodable value that is called after the data rows are iterated over
+# - Each row must have the SQLAlchemy table associated with it
 def batches(high_watermark):
     batch_high_watermark = '2015-01-01'
     if high_watermark is None or batch_high_watermark > high_watermark:

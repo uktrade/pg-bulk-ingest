@@ -1238,3 +1238,35 @@ def test_high_watermark_with_earliest():
         ingest(conn, metadata, batches, high_watermark="__EARLIEST__")
 
     assert high_watermarks == [None, None, None]
+
+
+def test_high_watermark_callable():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        sa.Column("id_2", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+    today = '2011-01-01'
+
+    def batches(high_watermark):
+        high_watermarks.append(high_watermark)
+        yield lambda: today, None, ()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, today]
