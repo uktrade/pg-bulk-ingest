@@ -405,6 +405,9 @@ def ingest(
                 )
                 conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
 
+        if callable(high_watermark_value):
+            high_watermark_value = high_watermark_value()
+
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
         save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
