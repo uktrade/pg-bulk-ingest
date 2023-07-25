@@ -2,7 +2,20 @@
 
 A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, allowing concurrent reads as much as possible.
 
-Allowing concurrent writes is not an aim of this function. This is designed for cases where PostgreSQL is used as a data warehouse, and the only writes to the table are from pg-bulk-ingest. It is assumed that there is only one pg-bulk-ingest running against a given table at any one time.
+Allowing concurrent writes is not an aim of pg-bulk-ingest. It is designed for use in ETL pipelines where PostgreSQL is used as a data warehouse, and the only writes to the table are from pg-bulk-ingest. It is assumed that there is only one pg-bulk-ingest running against a given table at any one time.
+
+
+## Features
+
+pg-bulk-ingest exposes a single function as its API that:
+
+- Creates the table if necessary
+- Migrates any existing table if necessary, minimising locking
+- Ingests data in batches, where each batch is ingested in its own transaction
+- Handles "high-watermarking" to carry on from where a previous ingest finished or errored
+- Optionally performs an "upsert", matching rows on primary key
+- Optionally deletes all existing rows before ingestion
+- Optionally calls a callback just before each batch is visible to other database clients
 
 
 ## Installation
@@ -14,19 +27,7 @@ pip install pg-bulk-ingest psycopg
 ```
 
 
-## Usage
-
-Data ingest to a table is done through the function `ingest`. This function:
-
-- creates the table if necessary
-- migrates any existing table if necessary, minimising locking
-- ingests data in batches, where each batch is ingested in its own transaction
-- handles "high-watermarking" to carry on from where a previous ingest finished or errored, or to set pipeline to ingest from the start
-- optionally performs an "upsert", matching rows on primary key
-- optionally deletes all existing rows before ingestion
-- optionally calls a callback just before each batch is visible to other database clients
-
-### Example
+## Example
 
 Ensure you have a PostgreSQL instance running. For example to test with Docker locally, on the command line run:
 
@@ -34,7 +35,7 @@ Ensure you have a PostgreSQL instance running. For example to test with Docker l
 docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
 ```
 
-Then in Python:
+Then in Python create a PostgreSQL table and ingest hard-coded data into it using the `ingest` function:
 
 ```python
 import sqlalchemy as sa
