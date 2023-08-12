@@ -28,7 +28,9 @@ dev = [
     "pytest>=7.2.1",
 ]
 ci = [
-    "pytest==7.2.1",
+    "pytest",
+    "pytest-cov",
+    "coverage",
 ]
 ci-psycopg2-sqlalchemy1 = [
     "psycopg2==2.9.2",
