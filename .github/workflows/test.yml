@@ -47,4 +47,5 @@ jobs:
         run: "timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/5432; do sleep 5; done'"
       - name: "Test"
         run: |
-          pytest
+          pytest --cov
+      - uses: codecov/codecov-action@v3

@@ -1,5 +1,7 @@
 # pg-bulk-ingest
 
+[![PyPI package](https://img.shields.io/pypi/v/pg-bulk-ingest?label=PyPI%20package&color=%234c1)](https://pypi.org/project/pg-bulk-ingest/) [![Test suite](https://img.shields.io/github/actions/workflow/status/uktrade/pg-bulk-ingest/test.yml?label=Test%20suite)](https://github.com/uktrade/pg-bulk-ingest/actions/workflows/test.yml) [![Code coverage](https://img.shields.io/codecov/c/github/uktrade/pg-bulk-ingest?label=Code%20coverage)](https://app.codecov.io/gh/uktrade/pg-bulk-ingest)
+
 A Python utility function for ingesting data into a SQLAlchemy-defined PostgreSQL table, automatically migrating it as needed, allowing concurrent reads as much as possible.
 
 Allowing concurrent writes is not an aim of pg-bulk-ingest. It is designed for use in ETL pipelines where PostgreSQL is used as a data warehouse, and the only writes to the table are from pg-bulk-ingest. It is assumed that there is only one pg-bulk-ingest running against a given table at any one time.
