@@ -252,7 +252,7 @@ def ingest(
         target_table.name,
         initial_table_metadata,
         *(
-            sa.Column(column.name, column.type)
+            sa.Column(column.name, column.type, nullable=column.nullable)
             for column in target_table.columns
         ),
         schema=target_table.schema
