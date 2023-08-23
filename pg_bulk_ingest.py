@@ -122,10 +122,10 @@ def ingest(
                 indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
 
             columns_target = tuple(
-                (col.name, repr(col.type), col.nullable, col.primary_key) for col in target_table.columns.values()
+                (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in target_table.columns.values()
             )
             columns_live = tuple(
-                (col.name, repr(col.type), col.nullable, col.primary_key) for col in live_table.columns.values()
+                (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in live_table.columns.values()
             )
 
             indexes_target_repr != indexes_live_repr or columns_target != columns_live
@@ -140,7 +140,7 @@ def ingest(
             uuid.uuid4().hex,
             ingest_metadata,
             *(
-                sa.Column(column.name, column.type, nullable=column.nullable, primary_key=column.primary_key)
+                sa.Column(column.name, column.type, unique=column.unique, nullable=column.nullable, primary_key=column.primary_key)
                 for column in target_table.columns
             ),
             schema=target_table.schema
@@ -252,7 +252,7 @@ def ingest(
         target_table.name,
         initial_table_metadata,
         *(
-            sa.Column(column.name, column.type, nullable=column.nullable)
+            sa.Column(column.name, column.type, nullable=column.nullable, unique=column.unique)
             for column in target_table.columns
         ),
         schema=target_table.schema
