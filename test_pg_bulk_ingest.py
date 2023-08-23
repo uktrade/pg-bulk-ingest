@@ -65,6 +65,71 @@ def test_data_types():
     ]
 
 
+def test_unique_initial():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER, unique=True),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1,)),
+                (my_table, (1,)),
+            ),
+        ),
+    )
+    with pytest.raises(Exception, match='violates unique constraint'):
+        with engine.connect() as conn:
+            ingest(conn, metadata, batches)
+
+
+def test_unique_added():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (1,)),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    metadata = sa.MetaData()
+    my_table_with_unique = sa.Table(
+        my_table.name,
+        metadata,
+        sa.Column("integer", sa.INTEGER, unique=True),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_with_unique, (1,)),
+            ),
+        ),
+    )
+    with pytest.raises(Exception, match='violates unique constraint'):
+        with engine.connect() as conn:
+            ingest(conn, metadata, batches)
+
+
 def test_batches():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
