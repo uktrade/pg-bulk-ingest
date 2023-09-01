@@ -46,6 +46,9 @@ def ingest(
         on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
 ):
 
+    def temp_relation_name():
+        return f"_tmp_{uuid.uuid4().hex}"
+    
     def sql_and_copy_from_stdin(driver):
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
         # COPY ... FROM STDIN API via write_row that handles escaping,
@@ -137,7 +140,7 @@ def ingest(
         logger.info('Ingesting via new ingest table')
         ingest_metadata = sa.MetaData()
         ingest_table = sa.Table(
-            uuid.uuid4().hex,
+            temp_relation_name(),
             ingest_metadata,
             *(
                 sa.Column(column.name, column.type, unique=column.unique, nullable=column.nullable, primary_key=column.primary_key)
@@ -307,7 +310,7 @@ def ingest(
             logger.info('Creating and ingesting into batch table')
             batch_db_metadata = sa.MetaData()
             batch_table = sa.Table(
-                uuid.uuid4().hex,
+                temp_relation_name(),
                 batch_db_metadata,
                 *(
                     sa.Column(column.name, column.type)
@@ -365,7 +368,7 @@ def ingest(
             for index in target_table.indexes:
                 logger.info("Creating index %s", index)
                 sa.Index(
-                    uuid.uuid4().hex,
+                    temp_relation_name(),
                     *(ingest_table.columns[column.name] for column in index.columns),
                     **index.dialect_kwargs,
                 ).create(bind=conn)
