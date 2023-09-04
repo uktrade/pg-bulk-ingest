@@ -165,6 +165,33 @@ def test_batches():
         (2,),
     ]
 
+def test_if_no_batches_then_only_target_table_visible():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+    with engine.connect() as conn:
+        first_check = conn.execute(sa.text('''
+            SELECT count(*) FROM pg_class;
+        ''')).fetchall()[0][0]
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        schema="my_schema",
+    )
+    batches = lambda _: []
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches, delete=Delete.BEFORE_FIRST_BATCH)
+
+    with engine.connect() as conn:
+        last_check = conn.execute(sa.text('''
+            SELECT count(*) FROM pg_class;
+        ''')).fetchall()[0][0]
+
+    # we expect the target table to be visible but no others
+    assert last_check == first_check + 1
+
 
 def test_batches_with_long_index_name():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
