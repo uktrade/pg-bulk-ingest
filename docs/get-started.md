@@ -13,7 +13,7 @@ Python 3.7+
 ## Installation
 `pg-bulk-ingest` can be installed from  PyPI using `pip`. `psycopg2` or `psycopg` (Psycopg 3) must also be explicitly installed.
 
-```
+```shell
 pip install pg-bulk-ingest psycopg
 ```
 
@@ -22,7 +22,7 @@ pip install pg-bulk-ingest psycopg
 
 Ensure you have a PostgreSQL instance running. For example to test with Docker locally, on the command line run:
 
-```bash
+```shell
 docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
 ```
 
