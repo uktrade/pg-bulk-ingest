@@ -28,7 +28,7 @@ A reasonable first step is to make a pipeline that does nothing but creates an e
 2. Add the below into the file. This is an optional step, but highlights the main sections of a DAG
 
 
-```
+```python
 # 1. Define the function that makes up the single task of this DAG
 
 # ...
@@ -45,7 +45,7 @@ A reasonable first step is to make a pipeline that does nothing but creates an e
 3. Replace the contents of the file with the below, changing where appropriate. At a minimum the CommodityCodePipeline, dit and commodity_codes would be changed, as well as the definition of table and the environment variable for the connection to the db.
 
 
-```
+```python
 import os
 from datetime import datetime, timedelta
  
@@ -163,7 +163,7 @@ A batch is a tuple with 3 elements:
 With this in mind, you can modify the batches function so every time the pipeline runs, 2 batches of fake data are ingested.
 
 
-```
+```python
 def batches(high_watermark):
     yield (None, None, (
         (table, ('0100000000', '80', 'LIVE ANIMALS')),
@@ -183,7 +183,7 @@ The next step is to create a pipeline that re-ingests all data every run. If the
 The code to do this depends on the data source. In this example, we can modify the batches function to ingest all UK Tariff commodity codes from a public CSV file hosted on the department's Public Data API. This example uses iterables heavily to avoid loading the entire batch into memory at once.
 
 
-```
+```python
 import csv
 import io
 
@@ -243,7 +243,7 @@ If necessary, the pipeline can be modified to ingest data only if it something h
 In the above example, each dataset in the Public Data API has a “version”, and a mechanism for finding the latest version. The “high watermark” can be used to only ingest data if the latest version is greater than the version previously ingested.
 
 
-```
+```python
 import re
 
 def batches(high_watermark):
