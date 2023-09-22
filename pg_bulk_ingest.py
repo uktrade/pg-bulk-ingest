@@ -90,11 +90,11 @@ def ingest(
             must_create_ingest_table = True
 
         if not must_create_ingest_table:
-            logger.info('Finding existing columns of %s.%s', target_table.schema, target_table.name)
+            logger.info('Finding existing columns of %s.%s', str(target_table.schema), str(target_table.name))
             # Reflection can return a different server_default even if client code didn't set it
             for column in live_table.columns.values():
                 column.server_default = None
-            logger.info('Existing columns of %s.%s are %s', target_table.schema, target_table.name, list(live_table.columns))
+            logger.info('Existing columns of %s.%s are %s', str(target_table.schema), str(target_table.name), list(live_table.columns))
 
             live_table_column_names = set(live_table.columns.keys())
 
@@ -265,7 +265,7 @@ def ingest(
 
     is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
 
-    logger.info('Finding high-watermark of %s.%s', target_table.schema, target_table.name)
+    logger.info('Finding high-watermark of %s', str(target_table.name))
     comment = conn.execute(sa.text(sql.SQL('''
          SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
     ''').format(
@@ -283,7 +283,7 @@ def ingest(
         high_watermark_value = None
     else:
         high_watermark_value = high_watermark
-    logger.info('High-watermark of %s.%s is %s', target_table.schema, target_table.name, high_watermark_value)
+    logger.info('High-watermark of %s.%s is %s', str(target_table.schema), str(target_table.name), high_watermark_value)
 
     live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
 
