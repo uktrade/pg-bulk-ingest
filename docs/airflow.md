@@ -56,10 +56,9 @@ Airflow can be setup locally to use pg-bulk-ingest using a variation of its stan
 
 A reasonable first step is to make a pipeline that does nothing but creates an empty table.
 
-1. Create an empty file in your dags directory that indicates the source of the data, ending in _pipelines.py  For example ons_pipelines.py.
+1. Create an empty file in your dags directory that indicates the source of the data. If you are making changes to an existing Airflow setup, you may have a naming convention to follow in order for Airflow to detect the file. For example, you may have to end the file name in `_pipeline.py`.
 
-2. Add the below into the file. This is an optional step, but highlights the main sections of a DAG
-
+2. Add the below into the file. This is an optional step, but it highlights the main sections.
 
 ```python
 # 1. Define the function that makes up the single task of this DAG
@@ -75,17 +74,18 @@ A reasonable first step is to make a pipeline that does nothing but creates an e
 # ...
 ```
 
-3. Replace the contents of the file with the below, changing where appropriate. At a minimum the CommodityCodePipeline, dit and commodity_codes would be changed, as well as the definition of table and the environment variable for the connection to the db.
-
+3. Replace the contents of the file with the below.
 
 ```python
-import os
 from datetime import datetime, timedelta
- 
+import logging
+import os
+
 import sqlalchemy as sa
+from pg_bulk_ingest import ingest
+
 from airflow.datasets import Dataset
 from airflow.decorators import dag, task
-from pg_bulk_ingest import ingest
 
 
 # 1. Define the function that makes up the single task of this DAG
@@ -103,7 +103,7 @@ def sync(
     high_watermark,
     delete,
 ):
-    engine = sa.create_engine(os.environ['AIRFLOW_CONN_DB'], future=True)
+    engine = sa.create_engine(os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'], future=True)
 
     # The SQLAlchemy definition of the table to ingest data into
     metadata = sa.MetaData()
@@ -124,9 +124,7 @@ def sync(
     def on_before_visible(
         conn, ingest_table, source_modified_date
     ):
-        # A function to write to a metadata table
-        # can be included here
-        
+        pass
 
     with engine.connect() as conn:
         ingest(
@@ -162,20 +160,22 @@ def create_dag(dag_id, schema, table_name):
             dag_id=dag_id,
             schema=schema,
             table_name=table_name,
-            high_watermark="{{params.high_watermark}}",
-            delete="{{params.delete}}",
+            high_watermark="{{ params.high_watermark }}",
+            delete="{{ params.delete }}",
         )
 
     Pipeline()
 
 # 3. Call the function that creates the DAG
 
-create_dag('CommodityCodesPipeline', 'dit', 'commodity_codes')
+create_dag('CommodityCodesPipeline', 'dbt', 'commodity_codes')
+
 ```
 
 If you are familiar with Airflow, you may notice that there is an extra wrapper function - the create_dag wrapper function does not exist in Airflow’s documentation, for example at https://airflow.apache.org/docs/apache-airflow/stable/tutorial/taskflow.html. However, it allows the creation of several DAGs at the same time that differ only slightly, and so is the recommended pattern.
 
-4. At http://localhost:8080/ find and run this pipeline.
+4. At [http://localhost:8080/](http://localhost:8080/) find and run this pipeline.
+
 
 ## Modify the pipeline to ingest hard coded fake (or public) data
 
