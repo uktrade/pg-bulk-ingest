@@ -6,7 +6,7 @@ title: Airflow
 
 pg-bulk-ingest can be used from within [Apache Airflow](https://airflow.apache.org/), an orchestration tool often used for extract, transform and load (ETL) data pipelines. This page is a step by step guide to setting up a basic Airflow instance that creates such a pipeline to ingest data into a local PostgreSQL database. Airflow usually refers to a pipeline as a directed acyclic graph (DAG), as does this page.
 
-Airflow is very flexible. If you have an existing Airflow setup, not all parts of this guide may be applicable to your setup.
+Airflow is very flexible. If you have an existing Airflow setup, not all parts of this guide may be applicable.
 
 
 ## Prerequisites
@@ -54,7 +54,7 @@ Airflow can be setup locally to use pg-bulk-ingest using a variation of its stan
 
 ## Create a DAG that creates an empty table
 
-A reasonable first step is to make a DAG that does nothing but creates an empty table.
+A good first step is to make a DAG that does nothing but creates an empty table.
 
 1. Create an empty file in your dags directory that indicates the source of the data. If you are making changes to an existing Airflow setup, you may have a naming convention to follow in order for Airflow to detect the file. For example, you may have to end the file name in `_pipeline.py` or `_dag.py`.
 
