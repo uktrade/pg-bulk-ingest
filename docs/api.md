@@ -1,6 +1,6 @@
 ---
 layout: sub-navigation
-order: 3
+order: 4
 title: API
 ---
 

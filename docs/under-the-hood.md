@@ -1,6 +1,6 @@
 ---
 layout: sub-navigation
-order: 2
+order: 3
 title: Under the hood
 ---
 
