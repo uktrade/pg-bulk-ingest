@@ -16,13 +16,40 @@ To use pg-bulk-ingest from Airflow locally, you must have [Docker](https://www.d
 You should also have familiarity with [Python](https://www.python.org/) and the command line.
 
 
-## Setup
+## Setup Airflow
 
-1. Check out your local Airflow instance
+Airflow can be setup locally to use pg-bulk-ingest using a variation of its standard instructions. If you have an existing Airflow setup, this section can be skipped and you should follow the instructions for that setup.
 
-2. Start your local Airflow instance
+1. Follow the instructions at [https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html](https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html) up to, but not including, the "Running Airflow" stage.
 
-3. Go to http://localhost:8080/ in your browser. You should see the Airflow interface.
+2. Create a plain text file named `Dockerfile` in the local folder that contains the following.
+
+   ```
+   FROM apache/airflow:2.7.1
+
+   RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" pg-bulk-ingest==0.0.42 psycopg==3.1.10
+   ```
+   This defines a Docker container has pg-bulk-ingest installed on it.
+
+3. Modify the `docker-commpose.yaml` file that you downloaded as part of the step 1. Prefix the line that contains
+
+   ```
+   image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:
+   ```
+   with a `#` symbol to comment it out, and remove the `#` from the line that contains
+
+   ```
+   build: .
+   ```
+   to uncomment it. This means that Airflow will run on the Docker container defined in step 2.
+
+2. Start your local Airflow instance by running
+
+   ```
+   docker compose up --build
+   ```
+
+3. Go to [http://localhost:8080/](http://localhost:8080/) in your browser. You should see the Airflow interface.
 
 
 ## Create a pipeline that creates an empty table
