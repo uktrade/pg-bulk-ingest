@@ -4,7 +4,7 @@ order: 2
 title: Airflow
 ---
 
-pg-bulk-ingest can be used from within [Apache Airflow](https://airflow.apache.org/), an orchestration tool often used for extract, transform and load (ETL) data pipelines. This page is a step by step guide to setting up a basic Airflow instance that creates such a pipeline to ingest data into a local PostgreSQL database.
+pg-bulk-ingest can be used from within [Apache Airflow](https://airflow.apache.org/), an orchestration tool often used for extract, transform and load (ETL) data pipelines. This page is a step by step guide to setting up a basic Airflow instance that creates such a pipeline to ingest data into a local PostgreSQL database. Airflow usually refers to a pipeline as a directed acyclic graph (DAG), as does this page.
 
 Airflow is very flexible. If you have an existing Airflow setup, not all parts of this guide may be applicable to your setup.
 
@@ -52,11 +52,11 @@ Airflow can be setup locally to use pg-bulk-ingest using a variation of its stan
 3. Go to [http://localhost:8080/](http://localhost:8080/) in your browser. You should see the Airflow interface.
 
 
-## Create a pipeline that creates an empty table
+## Create a DAG that creates an empty table
 
-A reasonable first step is to make a pipeline that does nothing but creates an empty table.
+A reasonable first step is to make a DAG that does nothing but creates an empty table.
 
-1. Create an empty file in your dags directory that indicates the source of the data. If you are making changes to an existing Airflow setup, you may have a naming convention to follow in order for Airflow to detect the file. For example, you may have to end the file name in `_pipeline.py`.
+1. Create an empty file in your dags directory that indicates the source of the data. If you are making changes to an existing Airflow setup, you may have a naming convention to follow in order for Airflow to detect the file. For example, you may have to end the file name in `_pipeline.py` or `_dag.py`.
 
 2. Add the below into the file. This is an optional step, but it highlights the main sections.
 
@@ -168,16 +168,16 @@ def create_dag(dag_id, schema, table_name):
 
 # 3. Call the function that creates the DAG
 
-create_dag('CommodityCodesPipeline', 'dbt', 'commodity_codes')
+create_dag('CommodityCodes', 'dbt', 'commodity_codes')
 
 ```
 
 If you are familiar with Airflow, you may notice that there is an extra wrapper function - the create_dag wrapper function does not exist in Airflow’s documentation, for example at https://airflow.apache.org/docs/apache-airflow/stable/tutorial/taskflow.html. However, it allows the creation of several DAGs at the same time that differ only slightly, and so is the recommended pattern.
 
-4. At [http://localhost:8080/](http://localhost:8080/) find and run this pipeline.
+4. At [http://localhost:8080/](http://localhost:8080/) find and run this DAG.
 
 
-## Modify the pipeline to ingest hard coded data
+## Modify the DAG to ingest hard coded data
 
 The ingest function ingests data in batches. An entire batch of data is visible, or none of it is. In the above example, the batches generator function is responsible for supplying batches of data. Each item it yields is a batch. It can yield no batches, as in the above example, one batch, or many more batches.
 
@@ -193,7 +193,7 @@ A batch is a tuple with 3 elements:
 
     2. The second item must be a tuple of data for the row, exactly equal to the order of the columns defined in in the SQLAlchemy table definition
 
-With this in mind, you can modify the batches function so every time the pipeline runs, 2 batches of fake data are ingested.
+With this in mind, you can modify the batches function so every time the DAG runs, 2 batches of fake data are ingested.
 
 
 ```python
@@ -209,9 +209,9 @@ def batches(high_watermark):
     ))
 ```
 
-## Modify the pipeline to re-ingest all real data every run
+## Modify the DAG to re-ingest all real data every run
 
-The next step is to create a pipeline that re-ingests all data every run. If the total data sizes are too large to do this, ingesting only a small amount of real data is often reasonable.
+The next step is to create a DAG that re-ingests all data every run. If the total data sizes are too large to do this, ingesting only a small amount of real data is often reasonable.
 
 The code to do this depends on the data source. In this example, we can modify the batches function to ingest all UK Tariff commodity codes from a public CSV file hosted on the department's Public Data API. This example uses iterables heavily to avoid loading the entire batch into memory at once.
 
@@ -269,9 +269,9 @@ def batches(high_watermark):
       )
 ```
 
-## Modify the pipeline to ingest only on change
+## Modify the DAG to ingest only on change
 
-If necessary, the pipeline can be modified to ingest data only if it something has changed. How this is done depends on the source - it must support some mechanism of detecting that something has changed since the previous ingest.
+If necessary, the DAG can be modified to ingest data only if it something has changed. How this is done depends on the source - it must support some mechanism of detecting that something has changed since the previous ingest.
 
 In the above example, each dataset in the Public Data API has a “version”, and a mechanism for finding the latest version. The “high watermark” can be used to only ingest data if the latest version is greater than the version previously ingested.
 
@@ -301,11 +301,6 @@ def batches(high_watermark):
       )
 ```
 
-## Incremental pipelines
+## Incremental DAGs
 
 The above examples replace all the data in the existing table on every ingest. This is not always desirable. However, if a data source has some mechanism to fetch only data that has not yet been fetched then pg-bulk-ingest can be used to ingest from this source incrementally, i.e. on each ingest add to the exist data rather than replace it.
-
-For guidance on this you can:
-
-Read the documentation on Incremental pipelines using high watermarks 
-
