@@ -74,7 +74,7 @@ A reasonable first step is to make a pipeline that does nothing but creates an e
 # ...
 ```
 
-3. Replace the contents of the file with the below.
+3. Replace the contents of the file with the below. The environment variable in this case, `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`, ingests into the same PostgreSQL that Airflow stores its own metadata. This is is likely to be different in a production setup.
 
 ```python
 from datetime import datetime, timedelta
@@ -177,15 +177,15 @@ If you are familiar with Airflow, you may notice that there is an extra wrapper 
 4. At [http://localhost:8080/](http://localhost:8080/) find and run this pipeline.
 
 
-## Modify the pipeline to ingest hard coded fake (or public) data
+## Modify the pipeline to ingest hard coded data
 
 The ingest function ingests data in batches. An entire batch of data is visible, or none of it is. In the above example, the batches generator function is responsible for supplying batches of data. Each item it yields is a batch. It can yield no batches, as in the above example, one batch, or many more batches.
 
 A batch is a tuple with 3 elements:
 
-1. The first element is the so-called “high watermark” for the batch. If the batch is ingested successfully, this gets stored against the table, and the next time ingest is called, this value gets passed back into the batches function as its first and only argument. It can be None
+1. The first element is the so-called “high watermark” for the batch. If the batch is ingested successfully, this gets stored against the table, and the next time ingest is called, this value gets passed back into the batches function as its first and only argument. It can be None.
 
-2. The second element is metadata for the batch. This gets passed into the on_before_visible callback that is called just before the batch is visible to other database users. It can be any value, but it is often helpful for it to be the time the data was last modified. It can be None
+2. The second element is metadata for the batch. This gets passed into the on_before_visible callback that is called just before the batch is visible to other database users. It can be any value, but it is often helpful for it to be the time the data was last modified. It can be None.
 
 3. The third element is the data for the batch itself. It must be an iterable of tuples.
 
