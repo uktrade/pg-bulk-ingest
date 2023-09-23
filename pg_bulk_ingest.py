@@ -217,8 +217,11 @@ def ingest(
                     yield chunk[offset - to_yield : offset]
 
             class FileLikeObj(IOBase):
-                def readable(self):
-                    return True
+                # psycopg doesn't use the "readable" function, but keeping this here and
+                # commented out in case this code is copy and pasted elsewhere. Some code
+                # that expects file-like objects need it
+                # def readable(self):
+                #    return True
 
                 def read(self, size=-1):
                     return base().join(
