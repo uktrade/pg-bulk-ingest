@@ -12,15 +12,30 @@ startButton:
 <div class="govuk-grid-row">
   <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
     <h2 class="govuk-heading-m govuk-!-font-size-27">Auto migrations</h2>
-    <p class="govuk-body">Existing tables are automatically migrated as needed - no need to write and run migrations separately to the ingest themselves.</p>
+    <p class="govuk-body">Existing tables are automatically migrated as needed - no need for separate migrations.</p>
   </section>
   <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
     <h2 class="govuk-heading-m govuk-!-font-size-27">Memory efficient</h2>
-    <p class="govuk-body">The API is iterable-based to support streaming large amounts of data into PostgreSQL without loading it all into memory.</p>
+    <p class="govuk-body">The API supports streaming large amounts of data into PostgreSQL without loading it all into memory.</p>
   </section>
   <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
     <h2 class="govuk-heading-m govuk-!-font-size-27">Performance</h2>
-    <p class="govuk-body">Under the hood the PostgreSQL COPY statement is used to make ingests as performant as possible.</p>
+    <p class="govuk-body">The PostgreSQL COPY statement is used to make ingests as performant as possible.</p>
+  </section>
+</div>
+
+<div class="govuk-grid-row">
+  <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
+    <h2 class="govuk-heading-m govuk-!-font-size-27">Transactional</h2>
+    <p class="govuk-body">Data in ingested in batches - each batch is completely visible to other clients or not at all</p>
+  </section>
+  <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
+    <h2 class="govuk-heading-m govuk-!-font-size-27">Avoids long locks</h2>
+    <p class="govuk-body">Operations are structured to minimise the time ACCESS EXCLUSIVE locks are needed.</p>
+  </section>
+  <section class="govuk-grid-column-one-third-from-desktop govuk-!-margin-bottom-7">
+    <h2 class="govuk-heading-m govuk-!-font-size-27">Upserts</h2>
+    <p class="govuk-body">Optionally will perform an upsert based on a primary key.</p>
   </section>
 </div>
 
