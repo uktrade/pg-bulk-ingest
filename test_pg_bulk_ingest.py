@@ -65,6 +65,35 @@ def test_data_types():
     ]
 
 
+def test_large_amounts_of_data():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("varchar", sa.VARCHAR),
+        schema="my_schema",
+    )
+    batches = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, ('a' * 1000,))
+                for _ in range(0, 10000)
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    with engine.connect() as conn:
+        results = conn.execution_options(stream_results=True).execute(sa.select(my_table))
+        total_length = sum(len(r[0]) for r in results)
+
+    assert total_length == 1000 * 10000
+
+
 def test_unique_initial():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
