@@ -11,9 +11,12 @@ Airflow is very flexible. If you have an existing Airflow setup, not all parts o
 
 ## Prerequisites
 
-To use pg-bulk-ingest from Airflow locally, you must have [Docker](https://www.docker.com/get-started/) installed, and a way of editing plain text files, for example by using [VS Code](https://code.visualstudio.com/).
+You need the following software to follow this guide:
 
-You should also have familiarity with [Python](https://www.python.org/) and the command line.
+- [Docker](https://www.docker.com/get-started/)
+- a text editor or Integrated Development Environment (IDE), for example [VS Code](https://code.visualstudio.com/)
+
+You should also have experience of progamming in [Python](https://www.python.org/), and of using the command line.
 
 
 ## Setup Airflow

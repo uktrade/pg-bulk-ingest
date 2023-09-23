@@ -4,13 +4,24 @@ order: 1
 title: Get started
 ---
 
+pg-bulk-ingest is a Python package that can be used to ingest large amounts of data into a PostgreSQL database, for example as part of a extract, transform and load (ETL) data pipeline.
+
+This page is a step by step guide to installing pg-bulk-ingest and using it to ingest hard coded data into a local PostgreSQL database.
+
 
 ## Prerequisites
 
-Python 3.7+
+You need the following software to follow this guide:
+
+- [Python 3.7+](https://www.python.org/)
+- [Docker](https://www.docker.com/get-started/)
+- a text editor or Integrated Development Environment (IDE), for example [VS Code](https://code.visualstudio.com/)
+
+You should also have experience of progamming in Python, using the command line, and an understanding of how PostgreSQL tables are defined.
 
 
 ## Installation
+
 `pg-bulk-ingest` can be installed from  PyPI using `pip`. `psycopg2` or `psycopg` (Psycopg 3) must also be explicitly installed.
 
 ```shell
@@ -18,15 +29,20 @@ pip install pg-bulk-ingest psycopg
 ```
 
 
-## Example
+## Start a PostgreSQL database
 
-Ensure you have a PostgreSQL instance running. For example to test with Docker locally, on the command line run:
+To run a PostrgreSQL database locally using Docker, on the command line run:
 
 ```shell
 docker run --rm -it -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres
 ```
 
-Then in Python create a PostgreSQL table and ingest hard-coded data into it using the `ingest` function:
+
+## Create a basic ingest
+
+1. Create an empty Python file, for example `ingest.py`.
+
+1. In this file write code to use the  `ingest` function from the `pg_bulk_ingest` module to create a PostgreSQL table and ingest hard-coded data into it:
 
 ```python
 import sqlalchemy as sa
@@ -87,35 +103,8 @@ with engine.connect() as conn:
     )
 ```
 
+3. Run this file from the command line
 
-## Data types
-
-The SQLAlchemy "CamelCase" data types are not supported in table definitions. Instead, you must use types specified with "UPPERCASE" data types. These are non-abstracted database-level types. This is to support automatic migrations - the real database type is required in order to make a comparison with the live table and the one passed into the `ingest` function.
-
-Also not supported is the sqlalchemy.JSON type. Instead use `sa.dialects.postgresql.JSON` or `sa.dialects.postgresql.JSONB`.
-
-
-## Indexes
-
-Indexes can be added by passing `sqlalchemy.Index` objects after the column list when defining the table. The name of each index should be `None` - pg-bulk index chooses a random name so it does not conflict with other indexes.
-
-```python
-sa.Table(
-    "my_table",
-    metadata,
-    sa.Column("id", sa.INTEGER, primary_key=True),
-    sa.Column("value", sa.VARCHAR(16), nullable=False),
-    sa.Index(None, "value"),
-    schema="my_schema",
-)
+```shell
+python -m ingest
 ```
-
-
-## Compatibility
-
-- Python >= 3.7.1 (tested on 3.7.1, 3.8.0, 3.9.0, 3.10.0, and 3.11.0)
-- psycopg2 >= 2.9.2 or Psycopg 3 >= 3.1.4
-- SQLAlchemy >= 1.4.24 (tested on 1.4.24 and 2.0.0)
-- PostgreSQL >= 9.6 (tested on 9.6, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, and 16 Beta 2)
-
-Note that SQLAlchemy < 2 does not support Psycopg 3, and for SQLAlchemy < 2 `future=True` must be passed to `create_engine`.
