@@ -29,6 +29,10 @@ def _get_table_oid(engine, table):
         ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
 
 
+def _no_batches(_):
+    yield from ()
+
+
 def test_data_types():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -747,10 +751,9 @@ def test_table_with_multiple_similar_indexes():
         sa.Index(None, "a"),
         schema="my_schema",
     )
-    batches = lambda _: ()
 
     with engine.connect() as conn:
-        ingest(conn, metadata_1, batches)
+        ingest(conn, metadata_1, _no_batches)
 
     # We're mostly just checking is that no exception is raised
     with engine.connect() as conn:
@@ -1259,7 +1262,7 @@ def test_delete():
     ]
 
     with engine.connect() as conn:
-        ingest(conn, metadata, lambda _: (), delete=Delete.BEFORE_FIRST_BATCH)
+        ingest(conn, metadata, _no_batches, delete=Delete.BEFORE_FIRST_BATCH)
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
@@ -1410,4 +1413,4 @@ def test_multiple_tables_not_supported():
     )
     with engine.connect() as conn:
         with pytest.raises(ValueError, match='Only one table supported'):
-            ingest(conn, metadata, lambda _: ())
+            ingest(conn, metadata, _no_batches)
