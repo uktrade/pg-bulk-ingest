@@ -1391,3 +1391,23 @@ def test_high_watermark_callable():
         ingest(conn, metadata, batches)
 
     assert high_watermarks == [None, today]
+
+
+def test_multiple_tables_not_supported():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    # We do want to support multiple tables eventually, but for now...
+    metadata = sa.MetaData()
+    table_1 = sa.Table(
+        "table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+    )
+    table_2 = sa.Table(
+        "table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+    )
+    with engine.connect() as conn:
+        with pytest.raises(ValueError, match='Only one table supported'):
+            ingest(conn, metadata, lambda _: ())
