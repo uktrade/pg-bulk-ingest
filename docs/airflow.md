@@ -1,7 +1,7 @@
 ---
 layout: sub-navigation
 order: 2
-title: Airflow
+title: Get started with Airflow
 ---
 
 pg-bulk-ingest can be used from within [Apache Airflow](https://airflow.apache.org/), an orchestration tool often used for extract, transform and load (ETL) data pipelines. This page is a step by step guide to setting up a basic Airflow instance that creates such a pipeline to ingest data into a local PostgreSQL database. Airflow usually refers to a pipeline as a directed acyclic graph (DAG), as does this page.
