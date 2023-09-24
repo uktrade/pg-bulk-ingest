@@ -4,7 +4,7 @@ order: 3
 title: Table defintions
 ---
 
-Tables must be defined via a [SQLAlchemy metadata](https://docs.sqlalchemy.org/en/20/core/metadata.html)instance. Only some SQLAlchemy/PostgreSQL features are supported.
+Tables must be defined via a [SQLAlchemy metadata](https://docs.sqlalchemy.org/en/20/core/metadata.html) instance. Only some SQLAlchemy/PostgreSQL features are supported.
 
 
 ## Data types
