@@ -175,9 +175,9 @@ create_dag('CommodityCodes', 'dbt', 'commodity_codes')
 
 ```
 
-If you are familiar with Airflow, you may notice that there is an extra wrapper function - the create_dag wrapper function does not exist in Airflow’s documentation, for example at https://airflow.apache.org/docs/apache-airflow/stable/tutorial/taskflow.html. However, it allows the creation of several DAGs at the same time that differ only slightly, and so is the recommended pattern.
-
 4. At [http://localhost:8080/](http://localhost:8080/) find and run this DAG.
+
+> You may notice that the `create_dag` wrapper function does not exist in Airflow's own documentation at [https://airflow.apache.org/docs/apache-airflow/stable/tutorial/taskflow.html](https://airflow.apache.org/docs/apache-airflow/stable/tutorial/taskflow.html). However, it allows the creation of several DAGs that share code. To be future friendly we recommend to start with this pattern.
 
 
 ## Modify the DAG to ingest hard coded data
