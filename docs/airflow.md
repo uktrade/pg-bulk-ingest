@@ -16,7 +16,7 @@ You need the following software to follow this guide:
 - [Docker](https://www.docker.com/get-started/)
 - a text editor or Integrated Development Environment (IDE), for example [VS Code](https://code.visualstudio.com/)
 
-You should also have experience of progamming in [Python](https://www.python.org/), and of using the command line.
+You should also have experience of progamming in [Python](https://www.python.org/), using the command line, and an understanding of [how PostgreSQL tables are defined](https://www.postgresql.org/docs/current/ddl-basics.html).
 
 
 ## Setup Airflow
