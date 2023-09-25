@@ -1,4 +1,5 @@
 import uuid
+import io
 from contextlib import contextmanager
 from datetime import date
 
@@ -16,7 +17,7 @@ except ImportError:
 
 engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
 
-from pg_bulk_ingest import Delete, ingest, HighWatermark, Upsert
+from pg_bulk_ingest import Delete, ingest, HighWatermark, Upsert, to_file_like_obj
 
 
 def _get_table_oid(engine, table):
@@ -1414,3 +1415,58 @@ def test_multiple_tables_not_supported():
     with engine.connect() as conn:
         with pytest.raises(ValueError, match='Only one table supported'):
             ingest(conn, metadata, _no_batches)
+
+
+def test_to_file_object_function():
+    iterable=[b'1',b'2',b'3']
+    obj = to_file_like_obj(iterable, bytes)
+    obj_read = obj.read()
+    assert obj_read == b'123'
+
+def test_str_to_file_like_obj():
+    iterable=['1','2','3']
+    obj = to_file_like_obj(iterable, str)
+    obj_read = obj.read()
+    assert obj_read == '123'
+
+def test_read_less_bytes_in_to_file_object_function():
+    iterable=[b'1',b'2',b'3']
+    obj = to_file_like_obj(iterable, bytes)
+    obj_read = obj.read(size=1)
+    assert obj_read == b'1'
+
+def test_read_more_bytes_than_available_in_to_file_object_function():
+    iterable=[b'1',b'2',b'3']
+    obj = to_file_like_obj(iterable, bytes)
+    obj_read = obj.read(size=10)
+    assert obj_read == b'123'
+
+def test_reading_file_obj_twice():
+    iterable=[b'1',b'2',b'3']
+    obj = to_file_like_obj(iterable, bytes)
+    obj_read = obj.read()
+    assert obj_read == b'123'
+    obj_read_twice = obj.read()
+    assert obj_read_twice == b''
+
+def test_negative_or_none_sizes():
+    iterable=[b'1',b'2',b'3']
+    obj = to_file_like_obj(iterable, bytes)
+    obj_read = obj.read(-2)
+    print(obj_read)
+    assert obj_read == b'123'
+    obj_2 = to_file_like_obj(iterable, bytes)
+    obj_read_2 = obj_2.read(None)
+    print(obj_read_2)
+    assert obj_read_2 == b'123'
+
+def test_streaming_behaviour_of_to_file_object():
+    total_read = 0
+    def with_count(iter_bytes):
+        nonlocal total_read
+        for chunk in iter_bytes:
+            total_read += len(chunk)
+            yield chunk
+    f = to_file_like_obj(with_count((b'a', b'b')), bytes)
+    f.read(1)
+    assert total_read == 1

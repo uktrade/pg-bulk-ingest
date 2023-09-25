@@ -39,6 +39,38 @@ class Visibility:
     AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
 
+def to_file_like_obj(iterable, base):
+    chunk = base()
+    offset = 0
+    it = iter(iterable)
+
+    def up_to_iter(size):
+        nonlocal chunk, offset
+
+        while size:
+            if offset == len(chunk):
+                try:
+                    chunk = next(it)
+                except StopIteration:
+                    break
+                else:
+                    offset = 0
+            to_yield = min(size, len(chunk) - offset)
+            offset = offset + to_yield
+            size -= to_yield
+            yield chunk[offset - to_yield : offset]
+    
+    class FileLikeObj(IOBase):
+        def readable(self):
+            return True
+
+        def read(self, size=-1):
+            return base().join(
+                up_to_iter(float('inf') if size is None or size < 0 else size)
+            )
+
+    return FileLikeObj()
+
 def ingest(
         conn, metadata, batches, high_watermark=HighWatermark.LATEST,
         visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
@@ -194,41 +226,6 @@ def ingest(
                 )
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
-
-        def to_file_like_obj(iterable, base):
-            chunk = base()
-            offset = 0
-            it = iter(iterable)
-
-            def up_to_iter(size):
-                nonlocal chunk, offset
-
-                while size:
-                    if offset == len(chunk):
-                        try:
-                            chunk = next(it)
-                        except StopIteration:
-                            break
-                        else:
-                            offset = 0
-                    to_yield = min(size, len(chunk) - offset)
-                    offset = offset + to_yield
-                    size -= to_yield
-                    yield chunk[offset - to_yield : offset]
-
-            class FileLikeObj(IOBase):
-                # psycopg doesn't use the "readable" function, but keeping this here and
-                # commented out in case this code is copy and pasted elsewhere. Some code
-                # that expects file-like objects need it
-                # def readable(self):
-                #    return True
-
-                def read(self, size=-1):
-                    return base().join(
-                        up_to_iter(float('inf') if size is None or size < 0 else size)
-                    )
-
-            return FileLikeObj()
 
         converters = tuple(get_converter(column.type) for column in batch_table.columns)
         db_rows = (
