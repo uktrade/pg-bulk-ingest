@@ -225,39 +225,7 @@ import io
 
 import requests
 
-from io import IOBase
-
-def to_file_like_obj(iterable, base):
-    chunk = base()
-    offset = 0
-    it = iter(iterable)
-
-    def up_to_iter(size):
-        nonlocal chunk, offset
-
-        while size:
-            if offset == len(chunk):
-                try:
-                    chunk = next(it)
-                except StopIteration:
-                    break
-                else:
-                    offset = 0
-            to_yield = min(size, len(chunk) - offset)
-            offset = offset + to_yield
-            size -= to_yield
-            yield chunk[offset - to_yield : offset]
-
-    class FileLikeObj(IOBase):
-        def readable(self):
-            return True
-
-        def read(self, size=-1):
-            return base().join(
-                up_to_iter(float('inf') if size is None or size < 0 else size)
-            )
-
-    return FileLikeObj()
+from pg_bulk_ingest import to_file_like_object
 
 def batches(high_watermark):
    url = 'https://data.api.trade.gov.uk/v1/datasets/uk-tariff-2021-01-01/versions/latest/tables/commodities-report/data?format=csv'
