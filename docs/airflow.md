@@ -34,7 +34,7 @@ Airflow can be setup locally to use pg-bulk-ingest using a variation of its stan
    ```
    This defines a Docker container has pg-bulk-ingest installed on it.
 
-3. Modify the `docker-commpose.yaml` file that you downloaded as part of the step 1. Prefix the line that contains
+3. Modify the `docker-compose.yaml` file that you downloaded as part of the step 1. Prefix the line that contains
 
    ```
    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:
