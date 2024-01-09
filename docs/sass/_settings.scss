@@ -1,0 +1,8 @@
+$govuk-font-family: system-ui, sans-serif;
+
+// Our logo is 5px taller than the GOV.UK Crown that the design system is tailored for. But it's
+// only sort of "peeking" beyond the edges so we don't allocate more space for it in the page.
+// The X-GOVUK site doing a very similar thing with its logo I think for a similar reason
+.dbt-header__logotype {
+	margin-bottom: -5px;
+}

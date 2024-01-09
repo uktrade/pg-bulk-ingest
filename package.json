@@ -1,6 +1,6 @@
 {
   "dependencies": {
     "@11ty/eleventy": "^2.0.1",
-    "@x-govuk/govuk-eleventy-plugin": "^5.0.4"
+    "@x-govuk/govuk-eleventy-plugin": "^6.0.3"
   }
 }
