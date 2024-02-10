@@ -268,7 +268,7 @@ def ingest(
 
     for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
 
-        batch_ingest_tables = set()
+        batch_ingest_tables = {}
 
         if target_table not in ingested_target_tables:
             ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
@@ -282,7 +282,7 @@ def ingest(
                 ))
             ingested_target_tables.add(target_table)
 
-        batch_ingest_tables.add(ingest_table)
+        batch_ingest_tables[target_table] = ingest_table
 
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
 
@@ -377,7 +377,7 @@ def ingest(
                     .as_string(conn.connection.driver_connection))
                 )
 
-        for ingest_table in batch_ingest_tables:
+        for ingest_table in batch_ingest_tables.values():
             logger.info('Calling on_before_visible callback')
             on_before_visible(conn, ingest_table, batch_metadata)
             logger.info('Calling of on_before_visible callback complete')
