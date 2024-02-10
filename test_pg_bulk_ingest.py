@@ -1,5 +1,6 @@
 import uuid
 import io
+import itertools
 from contextlib import contextmanager
 from datetime import date
 
@@ -1397,24 +1398,40 @@ def test_high_watermark_callable():
     assert high_watermarks == [None, today]
 
 
-def test_multiple_tables_not_supported():
+def test_multiple_tables():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
-    # We do want to support multiple tables eventually, but for now...
     metadata = sa.MetaData()
     table_1 = sa.Table(
         "table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
+        schema="my_schema",
     )
     table_2 = sa.Table(
         "table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
+        schema="my_schema",
     )
+
+    def batch():
+        for i in range(0, 20000):
+            yield table_1, (i,)
+            yield table_2, (i,)
+
+    def batches(high_watermark):
+        yield None, None, batch()
+
     with engine.connect() as conn:
-        with pytest.raises(ValueError, match='Only one table supported'):
-            ingest(conn, metadata, _no_batches)
+        ingest(conn, metadata, batches)
+
+    with engine.connect() as conn:
+        results_a = conn.execute(sa.select(table_1).order_by('id_1')).fetchall()
+        results_b = conn.execute(sa.select(table_2).order_by('id_1')).fetchall()
+
+    assert results_a == [(i,) for i in range(0, 20000)]
+    assert results_b == [(i,) for i in range(0, 20000)]
 
 
 def test_to_file_object_function():

@@ -1,5 +1,6 @@
 import uuid
 import logging
+from collections import deque, defaultdict
 from contextlib import contextmanager
 from enum import Enum
 
@@ -45,6 +46,7 @@ def ingest(
         visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
         get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
         on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
+        max_rows_per_table_buffer=10000,
 ):
 
     def temp_relation_name():
@@ -153,6 +155,65 @@ def ingest(
 
         return ingest_table
 
+    def split_batch_into_tables(live_tables, combined_batch):
+        ingested_tables = set()
+        queues = defaultdict(deque)
+        current_queue = None
+        current_table = None
+
+        batch_iter = iter(batch)
+
+        def batch_for_current_table_until_a_queue_full():
+            nonlocal current_queue, current_table
+
+            while current_queue:
+                table, row = current_queue.popleft()
+                ingested_tables.add(table)
+                yield table, row 
+
+            while True:
+                try:
+                    table, row = next(batch_iter)
+                except StopIteration:
+                    current_queue = None
+                    current_table = None
+                    break
+
+                if table is current_table:
+                    ingested_tables.add(table)
+                    yield table, row
+                else:
+                    queue = queues[table]
+                    queue.append((table, row))
+                    if len(queue) >= max_rows_per_table_buffer:
+                        current_queue = queue
+                        current_table = table
+                        break
+
+        # Bootstrap, choosing the first table from the first row
+        try:
+            table, row = next(batch_iter)
+        except StopIteration:
+            pass
+        else:
+            current_queue = deque()
+            current_queue.append((table, row))
+            current_table = table
+
+            # Yield table batches
+            while current_queue:
+                yield current_table, live_tables[current_table], batch_for_current_table_until_a_queue_full()
+
+            # Yield data from remaining queues
+            for table, queue in queues.items():
+                current_queue = queue
+                current_table = table
+                yield current_table, live_tables[current_table], batch_for_current_table_until_a_queue_full()
+
+        # Yield empty table batch for tables we haven't ingested anything into at all
+        for table in (set(live_tables.keys()) - ingested_tables):
+            yield table, live_tables[table], ()
+
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
         def get_converter(sa_type):
@@ -205,41 +266,42 @@ def ingest(
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
 
-    if len(metadata.tables) > 1:
-        raise ValueError('Only one table supported')
-
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
     conn.begin()
 
-    # Create the target table without indexes, which are added later with
+    # Create the target tables without indexes, which are added later with
     # with logic to avoid duplicate names
-    target_table = next(iter(metadata.tables.values()))
-    logger.info("Creating target table %s if it does't already exist", target_table)
-    conn.execute(bind_identifiers(sql, conn, '''
-        CREATE SCHEMA IF NOT EXISTS {}
-    ''', target_table.schema))
-    initial_table_metadata = sa.MetaData()
-    initial_table = sa.Table(
-        target_table.name,
-        initial_table_metadata,
-        *(
-            sa.Column(column.name, column.type, nullable=column.nullable, unique=column.unique)
-            for column in target_table.columns
-        ),
-        schema=target_table.schema
-    )
-    initial_table_metadata.create_all(conn)
-    logger.info('Target table %s created or already existed', target_table)
+    for target_table in metadata.tables.values():
+        logger.info("Creating target table %s if it does't already exist", target_table)
+        conn.execute(bind_identifiers(sql, conn, '''
+            CREATE SCHEMA IF NOT EXISTS {}
+        ''', target_table.schema))
+        initial_table_metadata = sa.MetaData()
+        initial_table = sa.Table(
+            target_table.name,
+            initial_table_metadata,
+            *(
+                sa.Column(column.name, column.type, nullable=column.nullable, unique=column.unique)
+                for column in target_table.columns
+            ),
+            schema=target_table.schema
+        )
+        initial_table_metadata.create_all(conn)
+        logger.info('Target table %s created or already existed', target_table)
 
-    is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
+    target_tables = tuple(metadata.tables.values())
+    live_tables = {
+        target_table: sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+        for target_table in target_tables
+    }
 
-    logger.info('Finding high-watermark of %s', str(target_table.name))
+    logger.info('Finding high-watermark of %s', str(target_tables[0].name))
     comment = conn.execute(sa.text(sql.SQL('''
          SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
     ''').format(
-        schema=sql.Literal(target_table.schema),
-        table=sql.Literal(target_table.name),
+        schema=sql.Literal(target_tables[0].schema),
+        table=sql.Literal(target_tables[0].name),
     ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
     try:
         comment_parsed = json.loads(comment)
@@ -252,97 +314,116 @@ def ingest(
         high_watermark_value = None
     else:
         high_watermark_value = high_watermark
-    logger.info('High-watermark of %s.%s is %s', str(target_table.schema), str(target_table.name), high_watermark_value)
+    logger.info('High-watermark of %s.%s is %s', str(target_tables[0].schema), str(target_tables[0].name), high_watermark_value)
 
-    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+    ingested_target_tables = set()
 
+    for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
 
-    for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
-        if i == 0:
-            ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
+        batch_ingest_tables = {}
 
-        if i == 0 and ingest_table is not target_table and delete == Delete.OFF:
-            target_table_column_names = tuple(col.name for col in target_table.columns)
-            columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
-            conn.execute(sa.insert(ingest_table).from_select(
-                tuple(col.name for col in columns_to_select),
-                sa.select(*columns_to_select),
-            ))
+        for target_table, live_table, table_batch in split_batch_into_tables(live_tables, batch):
+            if target_table in batch_ingest_tables:
+                # Always ingest into the same table for a batch
+                ingest_table = batch_ingest_tables[target_table]
+            elif target_table not in ingested_target_tables:
+                # The first time we ingest into a table, we might need to create a new table, and maybe copy
+                # existing data into this new table. But only the first time, so we maintain a bit of state
+                # to avoid doing it again
+                ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
 
-        logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
+                if ingest_table is not target_table and delete == Delete.OFF:
+                    target_table_column_names = tuple(col.name for col in target_table.columns)
+                    columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
+                    conn.execute(sa.insert(ingest_table).from_select(
+                        tuple(col.name for col in columns_to_select),
+                        sa.select(*columns_to_select),
+                    ))
+                ingested_target_tables.add(target_table)
+                batch_ingest_tables[target_table] = ingest_table
+            else:
+                # Otherwise ingest directly into the target table
+                ingest_table = target_table
+                batch_ingest_tables[target_table] = ingest_table
 
-        if not is_upsert:
-            logger.info('Ingesting without upsert')
-            csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, batch)
-        else:
-            logger.info('Ingesting with upsert')
-            # Create a batch table, and ingest into it
-            logger.info('Creating and ingesting into batch table')
-            batch_db_metadata = sa.MetaData()
-            batch_table = sa.Table(
-                temp_relation_name(),
-                batch_db_metadata,
-                *(
-                    sa.Column(column.name, column.type)
-                    for column in ingest_table.columns
-                ),
-                schema=ingest_table.schema
-            )
-            batch_db_metadata.create_all(conn)
-            csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
-            logger.info('Ingestion into batch table complete')
+            logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
 
-            # check and remove any duplicates in the batch
-            logger.info('Check and remove any duplicates in the batch table')
-            dedup_query = sql.SQL('''
-                DELETE FROM {schema}.{batch_table} a USING (
-                    SELECT MAX(ctid) as ctid, {pk_columns}
-                    FROM {schema}.{batch_table}
-                    GROUP BY {pk_columns} HAVING COUNT(*) > 1
-                ) b
-                WHERE {clause}
-                AND a.ctid <> b.ctid
-            ''').format(
-                schema=sql.Identifier(batch_table.schema),
-                batch_table=sql.Identifier(batch_table.name),
-                pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
-                clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns if column.primary_key))
-            )
-            conn.execute(sa.text(dedup_query.as_string(conn.connection.driver_connection)))
-            logger.info('Deduplicating batch table complete')
-
-            # Copy from that batch table into the target table, using
-            # ON CONFLICT to update any existing rows
-            logger.info('Copying from batch table to target table')
-            insert_query = sql.SQL('''
-                INSERT INTO {schema}.{table}
-                SELECT * FROM {schema}.{batch_table}
-                ON CONFLICT({primary_keys})
-                DO UPDATE SET {updates}
-            ''').format(
-                schema=sql.Identifier(ingest_table.schema),
-                table=sql.Identifier(ingest_table.name),
-                batch_table=sql.Identifier(batch_table.name),
-                primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
-                updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns),
-            )
-            conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
-            logger.info('Copying from batch table to target table complete')
-
-            # Drop the batch table
-            logger.info('Dropping batch table')
-            batch_db_metadata.drop_all(conn)
-            logger.info('Batch table dropped')
-
-        if ingest_table is not target_table:
-            for index in target_table.indexes:
-                logger.info("Creating index %s", index)
-                sa.Index(
+            is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
+            if not is_upsert:
+                logger.info('Ingesting without upsert')
+                csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, table_batch)
+            else:
+                logger.info('Ingesting with upsert')
+                # Create a batch table, and ingest into it
+                logger.info('Creating and ingesting into batch table')
+                batch_db_metadata = sa.MetaData()
+                batch_table = sa.Table(
                     temp_relation_name(),
-                    *(ingest_table.columns[column.name] for column in index.columns),
-                    **index.dialect_kwargs,
-                ).create(bind=conn)
+                    batch_db_metadata,
+                    *(
+                        sa.Column(column.name, column.type)
+                        for column in ingest_table.columns
+                    ),
+                    schema=ingest_table.schema
+                )
+                batch_db_metadata.create_all(conn)
+                csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, table_batch)
+                logger.info('Ingestion into batch table complete')
 
+                # check and remove any duplicates in the batch
+                logger.info('Check and remove any duplicates in the batch table')
+                dedup_query = sql.SQL('''
+                    DELETE FROM {schema}.{batch_table} a USING (
+                        SELECT MAX(ctid) as ctid, {pk_columns}
+                        FROM {schema}.{batch_table}
+                        GROUP BY {pk_columns} HAVING COUNT(*) > 1
+                    ) b
+                    WHERE {clause}
+                    AND a.ctid <> b.ctid
+                ''').format(
+                    schema=sql.Identifier(batch_table.schema),
+                    batch_table=sql.Identifier(batch_table.name),
+                    pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
+                    clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns if column.primary_key))
+                )
+                conn.execute(sa.text(dedup_query.as_string(conn.connection.driver_connection)))
+                logger.info('Deduplicating batch table complete')
+
+                # Copy from that batch table into the target table, using
+                # ON CONFLICT to update any existing rows
+                logger.info('Copying from batch table to target table')
+                insert_query = sql.SQL('''
+                    INSERT INTO {schema}.{table}
+                    SELECT * FROM {schema}.{batch_table}
+                    ON CONFLICT({primary_keys})
+                    DO UPDATE SET {updates}
+                ''').format(
+                    schema=sql.Identifier(ingest_table.schema),
+                    table=sql.Identifier(ingest_table.name),
+                    batch_table=sql.Identifier(batch_table.name),
+                    primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
+                    updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns),
+                )
+                conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
+                logger.info('Copying from batch table to target table complete')
+
+                # Drop the batch table
+                logger.info('Dropping batch table')
+                batch_db_metadata.drop_all(conn)
+                logger.info('Batch table dropped')
+
+        for target_table, ingest_table in batch_ingest_tables.items():
+            logger.info("Creating indexes for %s.%s", str(target_table.schema), str(target_table.name))
+            if ingest_table is not target_table:
+                for index in target_table.indexes:
+                    logger.info("Creating index %s", index)
+                    sa.Index(
+                        temp_relation_name(),
+                        *(ingest_table.columns[column.name] for column in index.columns),
+                        **index.dialect_kwargs,
+                    ).create(bind=conn)
+
+            logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
             grantees = conn.execute(sa.text(sql.SQL('''
                 SELECT grantee
                 FROM information_schema.role_table_grants
@@ -361,35 +442,35 @@ def ingest(
                     .as_string(conn.connection.driver_connection))
                 )
 
-        logger.info('Calling on_before_visible callback')
-        on_before_visible(conn, ingest_table, batch_metadata)
-        logger.info('Calling of on_before_visible callback complete')
+        for ingest_table in batch_ingest_tables.values():
+            logger.info('Calling on_before_visible callback')
+            on_before_visible(conn, ingest_table, batch_metadata)
+            logger.info('Calling of on_before_visible callback complete')
 
-        if ingest_table is not target_table:
-            with get_pg_force_execute(conn, logger):
-                target_table.drop(conn)
-                rename_query = sql.SQL('''
-                    ALTER TABLE {schema}.{ingest_table}
-                    RENAME TO {target_table}
-                ''').format(
-                    schema=sql.Identifier(ingest_table.schema),
-                    ingest_table=sql.Identifier(ingest_table.name),
-                    target_table=sql.Identifier(target_table.name),
-                )
-                conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+        logger.info("Renaming tables if necessary")
+        for target_table, ingest_table in batch_ingest_tables.items():
+            if ingest_table is not target_table:
+                with get_pg_force_execute(conn, logger):
+                    target_table.drop(conn)
+                    rename_query = sql.SQL('''
+                        ALTER TABLE {schema}.{ingest_table}
+                        RENAME TO {target_table}
+                    ''').format(
+                        schema=sql.Identifier(ingest_table.schema),
+                        ingest_table=sql.Identifier(ingest_table.name),
+                        target_table=sql.Identifier(target_table.name),
+                    )
+                    conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
 
         if callable(high_watermark_value):
             high_watermark_value = high_watermark_value()
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
-        save_comment(sql, conn, target_table.schema, target_table.name, json.dumps(comment_parsed))
+        save_comment(sql, conn, target_tables[0].schema, target_tables[0].name, json.dumps(comment_parsed))
 
         conn.commit()
         logger.info('Ingestion of batch %s with high watermark value %s complete', batch_metadata, high_watermark_value)
         conn.begin()
-
-        # After the first batch, we always ingest into the target table
-        ingest_table = target_table
 
     conn.commit()
