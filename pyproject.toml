@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "sqlalchemy>=1.4.24",
     "pg-force-execute>=0.0.10",
+    "to-file-like-obj>=0.0.5",
 ]
 
 [project.optional-dependencies]
@@ -35,14 +36,17 @@ ci = [
 ci-psycopg2-sqlalchemy1 = [
     "psycopg2==2.9.2",
     "sqlalchemy==1.4.24",
+    "to-file-like-obj==0.0.5",
 ]
 ci-psycopg2-sqlalchemy2 = [
     "psycopg2==2.9.2",
     "sqlalchemy==2.0.0",
+    "to-file-like-obj==0.0.5",
 ]
 ci-psycopg3-sqlalchemy2 = [
     "psycopg==3.1.4",
     "sqlalchemy==2.0.0",
+    "to-file-like-obj==0.0.5",
 ]
 
 [project.urls]
