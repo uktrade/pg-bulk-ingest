@@ -153,8 +153,8 @@ def ingest(
 
         return ingest_table
 
-    def split_batch_into_tables(target_table, live_table, batch):
-        yield (target_table, live_table, batch)
+    def split_batch_into_tables(target_table, live_tables, batch):
+        yield (target_table, next(iter(live_tables.values())), batch)
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
@@ -236,10 +236,10 @@ def ingest(
         logger.info('Target table %s created or already existed', target_table)
 
     target_tables = tuple(metadata.tables.values())
-    live_tables = tuple(
-        sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+    live_tables = {
+        target_table: sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
         for target_table in target_tables
-    )
+    }
 
     logger.info('Finding high-watermark of %s', str(target_tables[0].name))
     comment = conn.execute(sa.text(sql.SQL('''
@@ -267,7 +267,7 @@ def ingest(
 
         batch_ingest_tables = {}
 
-        for target_table, live_table, table_batch in split_batch_into_tables(target_tables[0], live_tables[0], batch):
+        for target_table, live_table, table_batch in split_batch_into_tables(target_tables[0], live_tables, batch):
 
             if target_table in batch_ingest_tables:
                 # Always ingest into the same table for a batch
