@@ -8,6 +8,7 @@ import json
 from io import IOBase
 
 from pg_force_execute import pg_force_execute
+from to_file_like_obj import to_file_like_obj
 
 try:
     from psycopg2 import sql as sql2
@@ -38,38 +39,6 @@ class HighWatermark:
 class Visibility:
     AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
-
-def to_file_like_obj(iterable, base):
-    chunk = base()
-    offset = 0
-    it = iter(iterable)
-
-    def up_to_iter(size):
-        nonlocal chunk, offset
-
-        while size:
-            if offset == len(chunk):
-                try:
-                    chunk = next(it)
-                except StopIteration:
-                    break
-                else:
-                    offset = 0
-            to_yield = min(size, len(chunk) - offset)
-            offset = offset + to_yield
-            size -= to_yield
-            yield chunk[offset - to_yield : offset]
-    
-    class FileLikeObj(IOBase):
-        def readable(self):
-            return True
-
-        def read(self, size=-1):
-            return base().join(
-                up_to_iter(float('inf') if size is None or size < 0 else size)
-            )
-
-    return FileLikeObj()
 
 def ingest(
         conn, metadata, batches, high_watermark=HighWatermark.LATEST,
