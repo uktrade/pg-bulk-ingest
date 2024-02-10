@@ -232,15 +232,18 @@ def ingest(
         initial_table_metadata.create_all(conn)
         logger.info('Target table %s created or already existed', target_table)
 
-    target_table = next(iter(metadata.tables.values()))
-    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+    target_tables = tuple(metadata.tables.values())
+    live_tables = tuple(
+        sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
+        for target_table in target_tables
+    )
 
-    logger.info('Finding high-watermark of %s', str(target_table.name))
+    logger.info('Finding high-watermark of %s', str(target_tables[0].name))
     comment = conn.execute(sa.text(sql.SQL('''
          SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
     ''').format(
-        schema=sql.Literal(target_table.schema),
-        table=sql.Literal(target_table.name),
+        schema=sql.Literal(target_tables[0].schema),
+        table=sql.Literal(target_tables[0].name),
     ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
     try:
         comment_parsed = json.loads(comment)
@@ -253,8 +256,10 @@ def ingest(
         high_watermark_value = None
     else:
         high_watermark_value = high_watermark
-    logger.info('High-watermark of %s.%s is %s', str(target_table.schema), str(target_table.name), high_watermark_value)
+    logger.info('High-watermark of %s.%s is %s', str(target_tables[0].schema), str(target_tables[0].name), high_watermark_value)
 
+    target_table = target_tables[0]
+    live_table = live_tables[0]
     for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
         if i == 0:
             ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
