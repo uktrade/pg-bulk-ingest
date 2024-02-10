@@ -297,7 +297,7 @@ def ingest(
             is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
             if not is_upsert:
                 logger.info('Ingesting without upsert')
-                csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, batch)
+                csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, table_batch)
             else:
                 logger.info('Ingesting with upsert')
                 # Create a batch table, and ingest into it
@@ -313,7 +313,7 @@ def ingest(
                     schema=ingest_table.schema
                 )
                 batch_db_metadata.create_all(conn)
-                csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, batch)
+                csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, table_batch)
                 logger.info('Ingestion into batch table complete')
 
                 # check and remove any duplicates in the batch
