@@ -264,13 +264,13 @@ def ingest(
         if i == 0:
             ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
 
-        if i == 0 and ingest_table is not target_table and delete == Delete.OFF:
-            target_table_column_names = tuple(col.name for col in target_table.columns)
-            columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
-            conn.execute(sa.insert(ingest_table).from_select(
-                tuple(col.name for col in columns_to_select),
-                sa.select(*columns_to_select),
-            ))
+            if ingest_table is not target_table and delete == Delete.OFF:
+                target_table_column_names = tuple(col.name for col in target_table.columns)
+                columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
+                conn.execute(sa.insert(ingest_table).from_select(
+                    tuple(col.name for col in columns_to_select),
+                    sa.select(*columns_to_select),
+                ))
 
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
 
