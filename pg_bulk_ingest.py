@@ -233,6 +233,7 @@ def ingest(
         logger.info('Target table %s created or already existed', target_table)
 
     target_table = next(iter(metadata.tables.values()))
+    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
 
     logger.info('Finding high-watermark of %s', str(target_table.name))
     comment = conn.execute(sa.text(sql.SQL('''
@@ -253,8 +254,6 @@ def ingest(
     else:
         high_watermark_value = high_watermark
     logger.info('High-watermark of %s.%s is %s', str(target_table.schema), str(target_table.name), high_watermark_value)
-
-    live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
 
     for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
         if i == 0:
