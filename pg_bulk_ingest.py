@@ -260,8 +260,15 @@ def ingest(
 
     target_table = target_tables[0]
     live_table = live_tables[0]
-    for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
-        if i == 0:
+
+    # The first time we ingest into a table, we might need to create a new table, and maybe copy
+    # existing data into this new table. But only the first time, so we maintain a bit of state
+    # to avoid doing it again
+    ingested_target_tables = set()
+
+    for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
+
+        if target_table not in ingested_target_tables:
             ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
 
             if ingest_table is not target_table and delete == Delete.OFF:
@@ -271,6 +278,7 @@ def ingest(
                     tuple(col.name for col in columns_to_select),
                     sa.select(*columns_to_select),
                 ))
+            ingested_target_tables.add(target_table)
 
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
 
