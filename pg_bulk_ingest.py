@@ -233,7 +233,6 @@ def ingest(
         logger.info('Target table %s created or already existed', target_table)
 
     target_table = next(iter(metadata.tables.values()))
-    is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
 
     logger.info('Finding high-watermark of %s', str(target_table.name))
     comment = conn.execute(sa.text(sql.SQL('''
@@ -272,6 +271,7 @@ def ingest(
 
         logger.info('Ingesting batch %s with high watermark value %s', batch_metadata, high_watermark_value)
 
+        is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
         if not is_upsert:
             logger.info('Ingesting without upsert')
             csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, batch)
