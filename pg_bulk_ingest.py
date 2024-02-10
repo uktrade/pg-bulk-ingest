@@ -256,7 +256,6 @@ def ingest(
 
     live_table = sa.Table(target_table.name, sa.MetaData(), schema=target_table.schema, autoload_with=conn)
 
-
     for i, (high_watermark_value, batch_metadata, batch) in enumerate(batches(high_watermark_value)):
         if i == 0:
             ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
