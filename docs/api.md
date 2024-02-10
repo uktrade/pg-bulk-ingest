@@ -9,13 +9,13 @@ The API is a single function `ingest`, together with classes of string constants
 
 ---
 
-`ingest`(conn, metadata, batches, on_before_visible=lambda conn, latest_batch_metadata: None, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF)
+`ingest`(conn, metadata, batches, on_before_visible=lambda conn, latest_batch_metadata: None, high_watermark=HighWatermark.LATEST, visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF, max_rows_per_table_buffer=10000)
 
 Ingests data into a table
 
 - `conn` - A [SQLAlchemy connection](https://docs.sqlalchemy.org/en/20/core/connections.html#sqlalchemy.engine.Connection) not in a transaction, i.e. started by `connection` rather than `begin`.
 
-- `metadata` - A SQLAlchemy metadata of a single table.
+- `metadata` - A SQLAlchemy metadata of one or more tables.
 
 - `batches` - A function that takes a high watermark, returning an iterable that yields data batches that are strictly after this high watermark. See Usage above for an example.
 
@@ -34,6 +34,8 @@ Ingests data into a table
 - `upsert` (optional) - A member of the `Upsert` class, controlling whether an upsert is performed when ingesting data
 
 - `delete` (optional) - A member of the `Delete` class, controlling if existing rows are to be deleted.
+
+- `max_rows_per_table_buffer` (optional) - An integer number of rows to buffer in memory per table when ingesting into multiple tables.
 
 ---
 

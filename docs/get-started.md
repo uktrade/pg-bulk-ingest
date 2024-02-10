@@ -52,7 +52,7 @@ from pg_bulk_ingest import HighWatermark, Visibility, Upsert, Delete, ingest
 # if using a PostgreSQL instance elsewhere or setup differently
 engine = sa.create_engine('postgresql+psycopg://postgres@127.0.0.1:5432/')
 
-# A SQLAlchemy Metadata of a single table definition
+# A SQLAlchemy Metadata
 metadata = sa.MetaData()
 my_table = sa.Table(
     "my_table",

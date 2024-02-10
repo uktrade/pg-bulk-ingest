@@ -1,5 +1,6 @@
 import uuid
 import logging
+from collections import deque, defaultdict
 from contextlib import contextmanager
 from enum import Enum
 
@@ -45,6 +46,7 @@ def ingest(
         visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
         get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
         on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
+        max_rows_per_table_buffer=10000,
 ):
 
     def temp_relation_name():
@@ -153,8 +155,64 @@ def ingest(
 
         return ingest_table
 
-    def split_batch_into_tables(target_table, live_tables, batch):
-        yield (target_table, next(iter(live_tables.values())), batch)
+    def split_batch_into_tables(live_tables, combined_batch):
+        ingested_tables = set()
+        queues = defaultdict(deque)
+        current_queue = None
+        current_table = None
+
+        batch_iter = iter(batch)
+
+        def batch_for_current_table_until_a_queue_full():
+            nonlocal current_queue, current_table
+
+            while current_queue:
+                table, row = current_queue.popleft()
+                ingested_tables.add(table)
+                yield table, row 
+
+            while True:
+                try:
+                    table, row = next(batch_iter)
+                except StopIteration:
+                    current_queue = None
+                    current_table = None
+                    break
+
+                if table is current_table:
+                    ingested_tables.add(table)
+                    yield table, row
+                else:
+                    queue = queues[table]
+                    queue.append((table, row))
+                    if len(queue) >= max_rows_per_table_buffer:
+                        current_queue = queue
+                        current_table = table
+                        break
+
+        # Bootstrap, choosing the first table from the first row
+        try:
+            table, row = next(batch_iter)
+        except StopIteration:
+            pass
+        else:
+            current_queue = deque()
+            current_queue.append((table, row))
+            current_table = table
+
+            # Yield table batches
+            while current_queue:
+                yield current_table, live_tables[current_table], batch_for_current_table_until_a_queue_full()
+
+            # Yield data from remaining queues
+            for table, queue in queues.items():
+                current_queue = queue
+                current_table = table
+                yield current_table, live_tables[current_table], batch_for_current_table_until_a_queue_full()
+
+        # Yield empty table batch for tables we haven't ingested anything into at all
+        for table in (set(live_tables.keys()) - ingested_tables):
+            yield table, live_tables[table], ()
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
@@ -207,9 +265,6 @@ def ingest(
         )
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
-
-    if len(metadata.tables) > 1:
-        raise ValueError('Only one table supported')
 
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
@@ -267,8 +322,7 @@ def ingest(
 
         batch_ingest_tables = {}
 
-        for target_table, live_table, table_batch in split_batch_into_tables(target_tables[0], live_tables, batch):
-
+        for target_table, live_table, table_batch in split_batch_into_tables(live_tables, batch):
             if target_table in batch_ingest_tables:
                 # Always ingest into the same table for a batch
                 ingest_table = batch_ingest_tables[target_table]
