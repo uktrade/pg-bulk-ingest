@@ -153,6 +153,9 @@ def ingest(
 
         return ingest_table
 
+    def split_batch_into_tables(target_table, live_table, batch):
+        yield (target_table, live_table, batch)
+
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
 
         def get_converter(sa_type):
@@ -264,7 +267,7 @@ def ingest(
 
         batch_ingest_tables = {}
 
-        for target_table, live_table, table_batch in ((target_tables[0], live_tables[0], batch),):
+        for target_table, live_table, table_batch in split_batch_into_tables(target_tables[0], live_tables[0], batch):
 
             if target_table in batch_ingest_tables:
                 # Always ingest into the same table for a batch
