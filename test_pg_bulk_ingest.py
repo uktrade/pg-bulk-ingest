@@ -220,9 +220,14 @@ def test_if_no_batches_then_only_target_table_visible():
         ingest(conn, metadata, batches, delete=Delete.BEFORE_FIRST_BATCH)
 
     with engine.connect() as conn:
+        number_of_rows = len(conn.execute(sa.select(my_table)).fetchall())
+
         last_check = conn.execute(sa.text('''
             SELECT count(*) FROM pg_class;
         ''')).fetchall()[0][0]
+
+    # The table must exist to have gotten this
+    assert number_of_rows == 0
 
     # we expect the target table to be visible but no others
     assert last_check == first_check + 1
