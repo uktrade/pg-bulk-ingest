@@ -12,6 +12,20 @@ module.exports = function(eleventyConfig) {
         html: fs.readFileSync('./docs/assets/dit-logo.svg', {encoding: 'utf8'})
       },
       productName: 'pg-bulk-ingest',
+    },
+    footer: {
+      meta: {
+        items: [
+          {
+            href: 'https://github.com/uktrade/pg-bulk-ingest',
+            text: 'GitHub repository for pg-bulk-ingest'
+          },
+          {
+            href: 'https://www.gov.uk/government/organisations/department-for-business-and-trade',
+            text: 'Created by the Department for Business and Trade (DBT)'
+          }
+        ]
+      }
     }
   })
 
