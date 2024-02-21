@@ -273,7 +273,7 @@ def ingest(
     # Create the target tables without indexes, which are added later with
     # with logic to avoid duplicate names
     for target_table in metadata.tables.values():
-        logger.info("Creating target table %s if it does't already exist", target_table)
+        logger.info("Creating target table %s if it doesn't already exist", target_table)
         conn.execute(bind_identifiers(sql, conn, '''
             CREATE SCHEMA IF NOT EXISTS {}
         ''', target_table.schema))
