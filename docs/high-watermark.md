@@ -75,7 +75,7 @@ def batches(high_watermark):
 
 pg-bulk-ingest supports any JSON-encodable value as the high watermark, for example variables of type `str`.
 
-> Python date and datetimes objects are not JSON-encodable. If you wish to sue either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
+> Python date and datetime objects are not JSON-encodable. If you wish to sue either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
 
 
 ## Avoid using the local time
