@@ -75,7 +75,7 @@ def batches(high_watermark):
 
 pg-bulk-ingest supports any JSON-encodable value as the high watermark, for example variables of type `str`.
 
-> Python date and datetime objects are not JSON-encodable. If you wish to sue either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
+> Python date and datetime objects are not JSON-encodable. If you wish to use either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
 
 
 ## Avoid using the local time
@@ -87,7 +87,7 @@ Instead, some property of the source data should be used as the high watermark, 
 
 ## Date and times can be repeated, or even go backwards
 
-While a date or time supplied by the source system is often the best choice for high-watermark, a suprisingly high number of source system do not guarentee that data is released with a date or time that is stricly later than the date or time of all previously released data. In some cases dates and times can even be released that are ealier than previously released data, and so time can appear to go backwards.
+While a date or time supplied by the source system is often the best choice for high-watermark, a surprisingly high number of source system do not guarantee that data is released with a date or time that is stricly later than the date or time of all previously released data. In some cases dates and times can even be released that are ealier than previously released data, and so time can appear to go backwards.
 
 For example, the [date/time functions in PostgreSQL](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT) do not offer a guarantee that once a datetime is visible to clients that rows earlier than that time will never subsequently be visible to clients.
 
