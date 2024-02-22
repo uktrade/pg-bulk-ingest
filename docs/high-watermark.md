@@ -14,7 +14,7 @@ title: Using high-watermarks
 
 The high-watermark is a small piece of metadata that indicates how far an ingest has progressed. It is used on the next ingest to resume from that point. If used properly, it can offer a performance benefit over repeatedly re-ingesting the same data.
 
-There are risks of either losing data or duplicating data when using high-watermarks. Subtle and often not well-documented properties of data sources can affect what you need to do to make an high-watermarked ingest robust. What works in one situation may not work in another.
+There are risks of either losing data or duplicating data when using high-watermarks. Subtle and often not well-documented properties of data sources can affect what you need to do to make a high-watermarked ingest robust. What works in one situation may not work in another.
 
 > It's recommended to only use a high-watermark after you have written the ingest in a way that doesn't use a high-watermark. In this way you gain evidence that it's worth the effort and risk.
 
