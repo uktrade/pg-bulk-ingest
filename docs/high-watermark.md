@@ -80,6 +80,8 @@ pg-bulk-ingest supports any JSON-encodable value as the high-watermark, for exam
 
 > Python date and datetime objects are not JSON-encodable. If you wish to use either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
 
+> Python tuple objects are JSON-encodable, but when subsequently decoded they become Python lists. This means if you use tuples as a new high watermark, then there will be a type mismatch between the high-watermark as yielded with the batch, and when it's used on the next ingest. For this reason it's probably least surprising to avoid using tuples as part of the high-watermark.
+
 
 ## Avoid using the local time as a high-watermark
 
