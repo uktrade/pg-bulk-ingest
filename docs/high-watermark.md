@@ -12,11 +12,11 @@ title: Using high-watermarks
   </strong>
 </div>
 
-The high-watermark is a small piece of metadata that indicates how far an ingest has progressed. It is used on the next ingest to resume from that point. If used properly, it can offer a performance benefit over repeatedly re-ingesting the same data.
+A high-watermark is a small piece of metadata that indicates how far an ingest has progressed. It is used on the next ingest to resume from that point. If used properly, it can offer a performance benefit over repeatedly re-ingesting the same data.
 
 There are risks of either losing data or duplicating data when using high-watermarks. Subtle and often not well-documented properties of data sources can affect what you need to do to make a high-watermarked ingest robust. What works in one situation may not work in another.
 
-> It's recommended to only use a high-watermark after you have written the ingest in a way that doesn't use a high-watermark. In this way you gain evidence that it's worth the effort and risk.
+> It's recommended to only use a high-watermark after you have first written the ingest in a way that doesn't use a high-watermark. In this way you gain evidence that it's worth the effort and risk.
 
 
 ## The lifecycle of a high-watermark
@@ -46,17 +46,17 @@ On the first ingest `high_watermark` is `None`.
 
 ## Properties of a high-watermark
 
-A high-watermark is highly dependant on the properties of the source system. Specifically, in order to be a high-watermark that allows incremental ingests that doesn't duplicate data but also doesn't miss any data:
+A high-watermark is highly dependant on the properties of the source system. Specifically, in order to be a high-watermark that allows incremental ingests that don't duplicate or miss data:
 
-1. The source system has to offer a way of fetching data that is "after" any given value of the high watermark.
-2. The source system should not be able to subsequently release data "before" a high watermark.
+1. The source system has to offer a way of fetching data that is "after" any given value of the high-watermark.
+2. The source system should not be able to subsequently release data "before" a high-watermark.
 
 For example, consider the case of retrieving data from a source system that supplies data in daily batches, and where the source system offers:
 
 1. A way to fetch data from a specific date onwards
-2. A guarentee that once a day of data is released then that data will never change
+2. A guarantee that once a day of data is released then that data will never change
 
-Then the date associated with each batch of data would be a good choice for high watermark.
+In this case the date associated with each batch of data would be a good choice for high-watermark.
 
 The high-level code of a batches function in this case would be:
 
@@ -73,16 +73,19 @@ def batches(high_watermark):
         yield new_high_watermark, ..., ...
 ```
 
-pg-bulk-ingest supports any JSON-encodable value as the high watermark, for example variables of type `str`.
+
+## Supported data types for a high-watermark
+
+pg-bulk-ingest supports any JSON-encodable value as the high-watermark, for example variables of type `str`.
 
 > Python date and datetime objects are not JSON-encodable. If you wish to use either of them as a high-watermark, you must convert them to a JSON-encodable value, for example by passing them through the `str` function.
 
 
-## Avoid using the local time
+## Avoid using the local time as a high-watermark
 
 In most case the current date or time according to the computer running the ingest should not be used as the high-watermark. This is because it introduces a dependency on this time matching the time of the source system. This increases the risks of either missing or duplicating data.
 
-Instead, some property of the source data should be used as the high watermark, for example a date or time.
+Instead, some property of the source data should be used as the high-watermark, for example a date or time.
 
 
 ## Date and times can be repeated, or even go backwards
@@ -97,6 +100,6 @@ If the system you're ingesting from suffers from issues such as these, you shoul
 
 1. Configure the table you're ingesting into to have a primary key.
 2. Pass `upsert=Upsert.IF_PRIMARY_KEY` to `ingest` to upsert based on this key.
-3. On every ingest, re-ingest some amount of data from _before_ any existing high watermark onwards. The amount should be enough so you're sure that from the point of view of the source, time could not have gone backwards further.
+3. On every ingest, re-ingest some amount of data from _before_ any existing high-watermark onwards. The amount should be enough so you're sure that from the point of view of the source, time could not have gone backwards further.
 
 You may have to make a judgement call on what's appropriate in each case because the source system does not document how far backwards time can go.
