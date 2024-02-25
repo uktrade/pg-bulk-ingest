@@ -3,6 +3,9 @@ homepage: true
 layout: product
 title: Ingest large amounts of data into PostgreSQL
 description: Use this Python package to ingest data into SQLAlchemy-defined PostgreSQL tables, leveraging high-watermarking to keep them up to date without re-ingesting the same data.
+image:
+  src: /assets/pg-bulk-ingest-logo.svg
+  alt: pg-bulk-ingest logo of a database icon with many arrows pointing towards it
 startButton:
   href: "get-started"
   text: Get started
