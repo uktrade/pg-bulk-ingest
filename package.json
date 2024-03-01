@@ -1,9 +1,9 @@
 {
   "dependencies": {
     "@11ty/eleventy": "^2.0.1",
-    "@x-govuk/govuk-eleventy-plugin": "^6.0.3"
+    "@x-govuk/govuk-eleventy-plugin": "^6.0.5"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "^4.9.5"
+    "@rollup/rollup-linux-x64-gnu": "^4.12.0"
   }
 }
