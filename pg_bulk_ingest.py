@@ -254,6 +254,8 @@ def ingest(
                         + '}',
                     )
                 )
+            elif isinstance(sa_type, sa.dialects.postgresql.BYTEA):
+                return lambda v: (null if v is None else r'\x' + v.hex().upper())
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
 
