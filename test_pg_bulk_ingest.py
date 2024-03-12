@@ -48,14 +48,15 @@ def test_data_types():
         sa.Column("array", sa.ARRAY(sa.INTEGER)),
         sa.Column("json", sa.dialects.postgresql.JSON),
         sa.Column("jsonb", sa.dialects.postgresql.JSONB),
+        sa.Column("bytes", sa.dialects.postgresql.BYTEA),
         schema="my_schema",
     )
     batches = lambda _: (
         (
             None, None,
             (
-                (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {})),
-                (my_table, (5, 'b', None, [1,2], {}, {})),
+                (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'x')),
+                (my_table, (5, 'b', None, [1,2], {}, {}, b'y')),
             ),
         ),
     )
@@ -66,8 +67,8 @@ def test_data_types():
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
 
     assert results == [
-        (4, 'a', date(2023, 1, 2), [1,2], {}, {}),
-        (5, 'b', None, [1,2], {}, {}),
+        (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'x'),
+        (5, 'b', None, [1,2], {}, {}, b'y'),
     ]
 
 
