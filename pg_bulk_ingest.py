@@ -274,9 +274,8 @@ def ingest(
     # with logic to avoid duplicate names
     for target_table in metadata.tables.values():
         logger.info("Creating target table %s if it doesn't already exist", target_table)
-        conn.execute(bind_identifiers(sql, conn, '''
-            CREATE SCHEMA IF NOT EXISTS {}
-        ''', target_table.schema))
+        if target_table.schema not in sa.inspect(conn).get_schema_names():
+            conn.execute(sa.schema.CreateSchema(target_table.schema))
         initial_table_metadata = sa.MetaData()
         initial_table = sa.Table(
             target_table.name,
