@@ -133,8 +133,7 @@ def ingest(
             columns_live = tuple(
                 (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in live_table.columns.values()
             )
-
-            indexes_target_repr != indexes_live_repr or columns_target != columns_live
+            
             must_create_ingest_table = indexes_target_repr != indexes_live_repr or columns_target != columns_live
 
         if not must_create_ingest_table:
