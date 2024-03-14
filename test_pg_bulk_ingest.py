@@ -51,12 +51,13 @@ def test_data_types():
         sa.Column("bytes", sa.dialects.postgresql.BYTEA),
         schema="my_schema",
     )
+
     batches = lambda _: (
         (
             None, None,
             (
-                (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'x')),
-                (my_table, (5, 'b', None, [1,2], {}, {}, b'y')),
+                (my_table, (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'\x80')),
+                (my_table, (5, 'b', None, [1,2], {}, {}, b'\x00')),
             ),
         ),
     )
@@ -65,10 +66,10 @@ def test_data_types():
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
-
+    
     assert results == [
-        (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'x'),
-        (5, 'b', None, [1,2], {}, {}, b'y'),
+        (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'\x80'),
+        (5, 'b', None, [1,2], {}, {}, b'\x00'),
     ]
 
 
