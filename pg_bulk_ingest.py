@@ -434,11 +434,14 @@ def ingest(
                 ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
                     .as_string(conn.connection.driver_connection)
                 )).fetchall()
-                for grantee in grantees:
-                    conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
+                if grantees:
+                    conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
                         .format(
                             schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
-                            user=sql.Identifier(grantee[0]),
+                            users=sql.SQL(',').join(
+                                sql.Identifier(grantee[0])
+                                for grantee in grantees
+                            ),
                         )
                         .as_string(conn.connection.driver_connection))
                     )
