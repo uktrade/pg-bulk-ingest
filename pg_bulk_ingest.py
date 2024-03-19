@@ -423,24 +423,25 @@ def ingest(
                         **index.dialect_kwargs,
                     ).create(bind=conn)
 
-            logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
-            grantees = conn.execute(sa.text(sql.SQL('''
-                SELECT grantee
-                FROM information_schema.role_table_grants
-                WHERE table_schema = {schema} AND table_name = {table}
-                AND privilege_type = 'SELECT'
-                AND grantor != grantee
-            ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
-                .as_string(conn.connection.driver_connection)
-            )).fetchall()
-            for grantee in grantees:
-                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
-                    .format(
-                        schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
-                        user=sql.Identifier(grantee[0]),
+            if ingest_table is not target_table:
+                logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
+                grantees = conn.execute(sa.text(sql.SQL('''
+                    SELECT grantee
+                    FROM information_schema.role_table_grants
+                    WHERE table_schema = {schema} AND table_name = {table}
+                    AND privilege_type = 'SELECT'
+                    AND grantor != grantee
+                ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
+                    .as_string(conn.connection.driver_connection)
+                )).fetchall()
+                for grantee in grantees:
+                    conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {user}')
+                        .format(
+                            schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
+                            user=sql.Identifier(grantee[0]),
+                        )
+                        .as_string(conn.connection.driver_connection))
                     )
-                    .as_string(conn.connection.driver_connection))
-                )
 
         for ingest_table in batch_ingest_tables.values():
             logger.info('Calling on_before_visible callback')
