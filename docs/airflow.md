@@ -80,9 +80,8 @@ A good first step is to make a DAG that does nothing but creates an empty table.
 3. Replace the contents of the file with the below. The environment variable in this case, `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN`, ingests into the same PostgreSQL that Airflow stores its own metadata. This is is likely to be different in a production setup.
 
 ```python
-from datetime import datetime, timedelta
-import logging
 import os
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from pg_bulk_ingest import ingest
@@ -90,6 +89,9 @@ from pg_bulk_ingest import ingest
 from airflow.datasets import Dataset
 from airflow.decorators import dag, task
 
+import logging
+_logger = logging.getLogger('pg_bulk_ingest')
+_logger = _logger.setLevel('WARNING')
 
 # 1. Define the function that makes up the single task of this DAG
 
@@ -106,13 +108,17 @@ def sync(
     high_watermark,
     delete,
 ):
-    engine = sa.create_engine(os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'], future=True)
+    engine = sa.create_engine(
+        url=os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'],
+        future=True
+    )
 
-    if os.environ.get('AIRFLOW_CONN_DATASETS_DB', None):
-        assert (
-        engine.url != os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'],
-        'ERROR: You should ONLY write to the airflow metadata database during testing!'
-        )
+    if engine.url == os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN']:
+        _logger.warning('''
+            You are ingesting into Airflow\'s metadata database.
+            You should only do this for the pg_bulk_ingest test case.
+            Change the engine url to match your production database.
+        ''')
 
     # The SQLAlchemy definition of the table to ingest data into
     metadata = sa.MetaData()
