@@ -108,6 +108,12 @@ def sync(
 ):
     engine = sa.create_engine(os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'], future=True)
 
+    if os.environ.get('AIRFLOW_CONN_DATASETS_DB', None):
+        assert (
+        engine.url != os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'],
+        'ERROR: You should ONLY write to the airflow metadata database during testing!'
+        )
+
     # The SQLAlchemy definition of the table to ingest data into
     metadata = sa.MetaData()
     table = sa.Table(
