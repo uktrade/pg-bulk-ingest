@@ -1195,6 +1195,33 @@ def test_migrate_add_column_not_at_end_no_data():
     assert len(metadata_2.tables) == 1
 
 
+def test_float_field_has_no_migration():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("my_float_field", sa.FLOAT),
+        schema='my_schema',
+    )
+
+    batches = lambda _: (
+        (None, None, ()),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    oid_1 = _get_table_oid(engine, my_table)
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    oid_2 = _get_table_oid(engine, my_table)
+
+    assert oid_1 == oid_2
+
+
 def test_insert():
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
