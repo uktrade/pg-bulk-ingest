@@ -1,5 +1,6 @@
 import uuid
 import logging
+import math
 from collections import deque, defaultdict
 from contextlib import contextmanager
 from enum import Enum
@@ -258,8 +259,20 @@ def ingest(
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
 
+        def logged(rows):
+            i = None
+            logger.info("Ingesting from source into the database...")
+            for i, row in enumerate(rows):
+                yield row
+                # Logs frequently for small numbers of rows, less frequently for larger
+                if (i + 1) % (10 ** min((max((math.floor(math.log10(i + 1))), 2)), 6)) == 0:
+                    logger.info("Ingested %s rows...", i + 1)
+
+            total = i + 1 if i is not None else 0
+            logger.info("Ingested %s rows in total", total)
+
         converters = tuple(get_converter(column.type) for column in batch_table.columns)
-        db_rows = (
+        db_rows = logged(
             '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
             for row_table, row in rows
             if row_table is user_facing_table
