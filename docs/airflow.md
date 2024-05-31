@@ -169,7 +169,7 @@ def create_dag(dag_id, schema, table_name):
     def Pipeline():
         sync.override(
             outlets=[
-                Dataset(f'postgresql://datasets/{schema}.{table_name}'),
+                Dataset(f'postgresql://datasets//{schema}/{table_name}'),
             ]
         )(
             dag_id=dag_id,
