@@ -1447,6 +1447,59 @@ def test_multiple_tables():
     assert results_a == [(i,) for i in range(0, 20000)]
     assert results_b == [(i,) for i in range(0, 20000)]
 
+def test_multiple_tables_high_watermark():
+
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    table_1 = sa.Table(
+        "table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=False),
+        schema="my_schema",
+    )
+    table_2 = sa.Table(
+        "table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("id_1", sa.INTEGER, primary_key=False),
+        schema="my_schema",
+    )
+
+    high_watermarks = []
+
+    def batch():
+        yield table_1, (1,)
+        yield table_2, (2,)
+
+    def batches(high_watermark):
+
+        high_watermarks.append(high_watermark)
+
+        new_highwatermark = (high_watermark or 0) + 1
+
+        yield new_highwatermark, None, batch()
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+    
+    assert high_watermarks == [None, 1]
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    assert high_watermarks == [None, 1, 2]
+
+    with engine.connect() as conn:
+        results_a = conn.execute(sa.select(table_1).order_by('id_1')).fetchall()
+        results_b = conn.execute(sa.select(table_2).order_by('id_1')).fetchall()
+
+    assert results_a == [(1,), (1,), (1,)]
+    assert results_b == [(2,), (2,), (2,)]
 
 def test_to_file_object_function():
     iterable=[b'1',b'2',b'3']

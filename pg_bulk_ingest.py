@@ -82,8 +82,8 @@ def ingest(
         conn.execute(sa.text(sql.SQL('''
              COMMENT ON TABLE {schema}.{table} IS {comment}
         ''').format(
-            schema=sql.Identifier(target_table.schema),
-            table=sql.Identifier(target_table.name),
+            schema=sql.Identifier(schema),
+            table=sql.Identifier(table),
             comment=sql.Literal(comment),
         ).as_string(conn.connection.driver_connection)))
 
