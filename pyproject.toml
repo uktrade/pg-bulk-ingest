@@ -27,11 +27,15 @@ dev = [
     "psycopg>=3.1.4",
     "psycopg2>=2.9.2",
     "pytest>=7.2.1",
+    # Type checking
+    "mypy>=0.971",
 ]
 ci = [
     "pytest",
     "pytest-cov",
     "coverage",
+    # Type checking
+    "mypy>=0.971",
 ]
 ci-psycopg2-sqlalchemy1 = [
     "psycopg2==2.9.2",

@@ -21,7 +21,7 @@ engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('
 from pg_bulk_ingest import Delete, ingest, HighWatermark, Upsert, to_file_like_obj
 
 
-def _get_table_oid(engine, table):
+def _get_table_oid(engine, table) -> int:
     with engine.connect() as conn:
         return conn.execute(sa.text(sql.SQL('''
              SELECT (quote_ident({schema}) || '.' || quote_ident({table}))::regclass::oid
@@ -31,11 +31,11 @@ def _get_table_oid(engine, table):
         ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
 
 
-def _no_batches(_):
+def _no_batches(_) -> iter:
     yield from ()
 
 
-def test_data_types():
+def test_data_types() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -73,7 +73,7 @@ def test_data_types():
     ]
 
 
-def test_large_amounts_of_data():
+def test_large_amounts_of_data() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -102,7 +102,7 @@ def test_large_amounts_of_data():
     assert total_length == 1000 * 10000
 
 
-def test_unique_initial():
+def test_unique_initial() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -126,7 +126,7 @@ def test_unique_initial():
             ingest(conn, metadata, batches)
 
 
-def test_unique_added():
+def test_unique_added() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -167,7 +167,7 @@ def test_unique_added():
             ingest(conn, metadata, batches)
 
 
-def test_batches():
+def test_batches() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -202,7 +202,7 @@ def test_batches():
         (2,),
     ]
 
-def test_if_no_batches_then_only_target_table_visible():
+def test_if_no_batches_then_only_target_table_visible() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     with engine.connect() as conn:
         first_check = conn.execute(sa.text('''
@@ -235,7 +235,7 @@ def test_if_no_batches_then_only_target_table_visible():
     assert last_check == first_check + 1
 
 
-def test_batches_with_long_index_name():
+def test_batches_with_long_index_name() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -280,7 +280,7 @@ def test_batches_with_long_index_name():
     assert oid_1 == oid_2
 
 
-def test_batch_visible_only_after_batch_complete():
+def test_batch_visible_only_after_batch_complete() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -366,7 +366,7 @@ def test_batch_visible_only_after_batch_complete():
     ]
 
 
-def test_upsert():
+def test_upsert() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -421,7 +421,7 @@ def test_upsert():
     assert len(metadata.tables) == 1
 
 
-def test_upsert_off():
+def test_upsert_off() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -473,7 +473,7 @@ def test_upsert_off():
     assert len(metadata.tables) == 1
 
 
-def test_upsert_with_duplicates_in_batch():
+def test_upsert_with_duplicates_in_batch() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -529,7 +529,7 @@ def test_upsert_with_duplicates_in_batch():
     assert len(metadata.tables) == 1
 
 
-def test_high_watermark_is_preserved_between_ingests():
+def test_high_watermark_is_preserved_between_ingests() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -568,7 +568,7 @@ def test_high_watermark_is_preserved_between_ingests():
     assert high_watermarks == [None, 3, 6]
 
 
-def test_high_watermark_is_preserved_between_ingests_no_primary_key():
+def test_high_watermark_is_preserved_between_ingests_no_primary_key() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -584,7 +584,7 @@ def test_high_watermark_is_preserved_between_ingests_no_primary_key():
 
     high_watermarks = []
 
-    def batches(high_watermark):
+    def batches(high_watermark) -> iter:
         high_watermarks.append(high_watermark)
         yield (high_watermark or 0) + 1,  None, ()
         yield (high_watermark or 0) + 2,  None, ()
@@ -607,7 +607,7 @@ def test_high_watermark_is_preserved_between_ingests_no_primary_key():
     assert high_watermarks == [None, 3, 6]
 
 
-def test_high_watermark_is_preserved_if_exception():
+def test_high_watermark_is_preserved_if_exception() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -655,7 +655,7 @@ def test_high_watermark_is_preserved_if_exception():
     assert high_watermarks == [None, 3, 6, 7]
 
 
-def test_high_watermark_is_passed_into_the_batch_function():
+def test_high_watermark_is_passed_into_the_batch_function() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -671,7 +671,7 @@ def test_high_watermark_is_passed_into_the_batch_function():
 
     high_watermarks = []
 
-    def batches(high_watermark):
+    def batches(high_watermark) -> iter:
         high_watermarks.append(high_watermark)
         yield (high_watermark or 0) + 1,  None, ()
         yield (high_watermark or 0) + 2,  None, ()
@@ -683,7 +683,7 @@ def test_high_watermark_is_passed_into_the_batch_function():
     assert high_watermarks == [10]
 
 
-def test_migrate_add_column_at_end():
+def test_migrate_add_column_at_end() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -746,7 +746,7 @@ def test_migrate_add_column_at_end():
     assert len(metadata_2.tables) == 1
 
 
-def test_table_with_multiple_similar_indexes():
+def test_table_with_multiple_similar_indexes() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -771,7 +771,7 @@ def test_table_with_multiple_similar_indexes():
     assert results == []
 
 
-def test_migrate_add_index():
+def test_migrate_add_index() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -838,7 +838,7 @@ def test_migrate_add_index():
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_gin_index():
+def test_migrate_add_gin_index() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -906,7 +906,7 @@ def test_migrate_add_gin_index():
     assert oid_2 == oid_3
 
 
-def test_migrate_remove_index():
+def test_migrate_remove_index() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -955,7 +955,7 @@ def test_migrate_remove_index():
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_column_not_at_end():
+def test_migrate_add_column_not_at_end() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1020,7 +1020,7 @@ def test_migrate_add_column_not_at_end():
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved():
+def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1070,7 +1070,7 @@ def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved():
     assert high_watermarks == [None, 1, 1]
 
 
-def test_migrate_add_column_not_at_end_permissions_preserved():
+def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1129,7 +1129,7 @@ def test_migrate_add_column_not_at_end_permissions_preserved():
         schema="my_schema",
     )
 
-    def batches_2(high_watermark):
+    def batches_2(high_watermark) -> iter:
         yield (None, None, ())
 
     with engine.connect() as conn:
@@ -1142,7 +1142,7 @@ def test_migrate_add_column_not_at_end_permissions_preserved():
         assert results == [(1, 'a', None, 'b')]
 
 
-def test_migrate_add_column_not_at_end_no_data():
+def test_migrate_add_column_not_at_end_no_data() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1195,7 +1195,7 @@ def test_migrate_add_column_not_at_end_no_data():
     assert len(metadata_2.tables) == 1
 
 
-def test_insert():
+def test_insert() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1238,7 +1238,7 @@ def test_insert():
     assert len(metadata.tables) == 1
 
 
-def test_delete():
+def test_delete() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1290,7 +1290,7 @@ def test_delete():
     assert len(metadata.tables) == 1
 
 
-def test_on_before_batch_visible():
+def test_on_before_batch_visible() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1341,7 +1341,7 @@ def test_on_before_batch_visible():
     assert batch_metadatas == ['Batch metadata 1', 'Batch metadata 2']
 
 
-def test_high_watermark_with_earliest():
+def test_high_watermark_with_earliest() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1380,7 +1380,7 @@ def test_high_watermark_with_earliest():
     assert high_watermarks == [None, None, None]
 
 
-def test_high_watermark_callable():
+def test_high_watermark_callable() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1412,7 +1412,7 @@ def test_high_watermark_callable():
     assert high_watermarks == [None, today]
 
 
-def test_multiple_tables():
+def test_multiple_tables() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1447,7 +1447,7 @@ def test_multiple_tables():
     assert results_a == [(i,) for i in range(0, 20000)]
     assert results_b == [(i,) for i in range(0, 20000)]
 
-def test_multiple_tables_high_watermark():
+def test_multiple_tables_high_watermark() -> None:
 
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -1471,7 +1471,7 @@ def test_multiple_tables_high_watermark():
         yield table_1, (1,)
         yield table_2, (2,)
 
-    def batches(high_watermark):
+    def batches(high_watermark) -> iter:
 
         high_watermarks.append(high_watermark)
 
@@ -1501,31 +1501,31 @@ def test_multiple_tables_high_watermark():
     assert results_a == [(1,), (1,), (1,)]
     assert results_b == [(2,), (2,), (2,)]
 
-def test_to_file_object_function():
+def test_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read()
     assert obj_read == b'123'
 
-def test_str_to_file_like_obj():
+def test_str_to_file_like_obj() -> None:
     iterable=['1','2','3']
     obj = to_file_like_obj(iterable, str)
     obj_read = obj.read()
     assert obj_read == '123'
 
-def test_read_less_bytes_in_to_file_object_function():
+def test_read_less_bytes_in_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read(size=1)
     assert obj_read == b'1'
 
-def test_read_more_bytes_than_available_in_to_file_object_function():
+def test_read_more_bytes_than_available_in_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read(size=10)
     assert obj_read == b'123'
 
-def test_reading_file_obj_twice():
+def test_reading_file_obj_twice() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read()
@@ -1533,7 +1533,7 @@ def test_reading_file_obj_twice():
     obj_read_twice = obj.read()
     assert obj_read_twice == b''
 
-def test_negative_or_none_sizes():
+def test_negative_or_none_sizes() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read(-2)
@@ -1544,7 +1544,7 @@ def test_negative_or_none_sizes():
     print(obj_read_2)
     assert obj_read_2 == b'123'
 
-def test_streaming_behaviour_of_to_file_object():
+def test_streaming_behaviour_of_to_file_object() -> None:
     total_read = 0
     def with_count(iter_bytes):
         nonlocal total_read

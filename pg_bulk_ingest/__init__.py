@@ -48,12 +48,12 @@ def ingest(
         get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
         on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
         max_rows_per_table_buffer=10000,
-):
+) -> None:
 
-    def temp_relation_name():
+    def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
     
-    def sql_and_copy_from_stdin(driver):
+    def sql_and_copy_from_stdin(driver) -> tuple:
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
         # COPY ... FROM STDIN API via write_row that handles escaping,
         # but for consistency with Psycopg 2 we don't use it
@@ -73,12 +73,12 @@ def ingest(
             'psycopg': (sql3, copy_from_stdin3),
         }[driver]
 
-    def bind_identifiers(sql, conn, query_str, *identifiers):
+    def bind_identifiers(sql, conn, query_str, *identifiers) -> str:
         return sa.text(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    def save_comment(sql, conn, schema, table, comment):
+    def save_comment(sql, conn, schema, table, comment) -> None:
         conn.execute(sa.text(sql.SQL('''
              COMMENT ON TABLE {schema}.{table} IS {comment}
         ''').format(
@@ -87,7 +87,7 @@ def ingest(
             comment=sql.Literal(comment),
         ).as_string(conn.connection.driver_connection)))
 
-    def create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table):
+    def create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table) -> sa.Table:
         must_create_ingest_table = False
 
         if delete == Delete.BEFORE_FIRST_BATCH:
@@ -104,7 +104,7 @@ def ingest(
 
             # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
             # both in reflected tables, and when
-            def get_dialect_kwargs(index):
+            def get_dialect_kwargs(index) -> dict:
                 dialect_kwargs = dict(index.dialect_kwargs)
                 if 'postgresql_include' in dialect_kwargs and not dialect_kwargs['postgresql_include']:
                     del dialect_kwargs['postgresql_include']
@@ -113,7 +113,7 @@ def ingest(
             # Don't migrate if indexes only differ by name
             # Only way discovered is to temporarily change the name in each index name object
             @contextmanager
-            def ignored_name(indexes):
+            def ignored_name(indexes) -> None:
                 names = [index.name for index in indexes]
                 for index in indexes:
                     index.name = '__IGNORE__'
@@ -155,7 +155,7 @@ def ingest(
 
         return ingest_table
 
-    def split_batch_into_tables(live_tables, combined_batch):
+    def split_batch_into_tables(live_tables, combined_batch) -> tuple:
         ingested_tables = set()
         queues = defaultdict(deque)
         current_queue = None
@@ -163,7 +163,7 @@ def ingest(
 
         batch_iter = iter(batch)
 
-        def batch_for_current_table_until_a_queue_full():
+        def batch_for_current_table_until_a_queue_full() -> tuple:
             nonlocal current_queue, current_table
 
             while current_queue:
@@ -214,14 +214,14 @@ def ingest(
         for table in (set(live_tables.keys()) - ingested_tables):
             yield table, live_tables[table], ()
 
-    def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
+    def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows) -> None:
 
-        def get_converter(sa_type):
+        def get_converter(sa_type) -> callable:
 
-            def escape_array_item(text):
+            def escape_array_item(text) -> str:
                 return text.replace('\\', '\\\\').replace('"', '\\"')
 
-            def escape_string(text):
+            def escape_string(text) -> str:
                 return (
                     text.replace('\\', '\\\\')
                     .replace('\n', '\\n')
@@ -259,7 +259,7 @@ def ingest(
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
 
-        def logged(rows):
+        def logged(rows) -> None:
             i = None
             logger.info("Ingesting from source into the database...")
             for i, row in enumerate(rows):
