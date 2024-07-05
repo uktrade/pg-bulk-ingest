@@ -1,26 +1,33 @@
 import uuid
 import logging
 import math
+import typing
+import types
 from collections import deque, defaultdict
 from contextlib import contextmanager
-from enum import Enum
 
-import sqlalchemy as sa
+import sqlalchemy as sa # type: ignore
+from sqlalchemy.dialects.postgresql import BYTEA # type: ignore
 import json
-from io import IOBase
 
-from pg_force_execute import pg_force_execute
-from to_file_like_obj import to_file_like_obj
+from pg_force_execute import pg_force_execute # type: ignore
+from to_file_like_obj import to_file_like_obj # type: ignore
 
-try:
-    from psycopg2 import sql as sql2
-except ImportError:
-    sql2 = None
+# Declare sql2 and sql3 with initial None values and explicit type annotations
+sql2: typing.Optional[types.ModuleType] = None
+sql3: typing.Optional[types.ModuleType] = None
 
 try:
-    from psycopg import sql as sql3
+    from psycopg2 import sql as sql2_module # type: ignore
+    sql2 = sql2_module  # type: ignore
 except ImportError:
-    sql3 = None
+    pass
+
+try:
+    from psycopg import sql as sql3_module # type: ignore
+    sql3 = sql3_module  # type: ignore
+except ImportError:
+    pass
 
 
 class Upsert:
@@ -53,7 +60,7 @@ def ingest(
     def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
     
-    def sql_and_copy_from_stdin(driver) -> tuple:
+    def sql_and_copy_from_stdin(driver: str) -> typing.Tuple[typing.Any, typing.Callable[[typing.Any, typing.Any, typing.Any], None]]:
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
         # COPY ... FROM STDIN API via write_row that handles escaping,
         # but for consistency with Psycopg 2 we don't use it
@@ -73,7 +80,7 @@ def ingest(
             'psycopg': (sql3, copy_from_stdin3),
         }[driver]
 
-    def bind_identifiers(sql, conn, query_str, *identifiers) -> str:
+    def bind_identifiers(sql: typing.Any, conn: typing.Any, query_str: str, *identifiers: str) -> sa.sql.elements.TextClause:
         return sa.text(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
@@ -113,7 +120,7 @@ def ingest(
             # Don't migrate if indexes only differ by name
             # Only way discovered is to temporarily change the name in each index name object
             @contextmanager
-            def ignored_name(indexes) -> None:
+            def ignored_name(indexes) -> typing.Generator[None, None, None]:
                 names = [index.name for index in indexes]
                 for index in indexes:
                     index.name = '__IGNORE__'
@@ -155,15 +162,15 @@ def ingest(
 
         return ingest_table
 
-    def split_batch_into_tables(live_tables, combined_batch) -> tuple:
-        ingested_tables = set()
-        queues = defaultdict(deque)
+    def split_batch_into_tables(live_tables, combined_batch) -> typing.Generator[typing.Tuple[sa.Table, sa.Table, typing.Iterable[typing.Tuple[sa.Table, typing.Tuple]]], None, None]:
+        ingested_tables: typing.Set[typing.Optional[sa.Table]] = set()
+        queues: defaultdict[typing.Any, deque] = defaultdict(deque)
         current_queue = None
         current_table = None
 
         batch_iter = iter(batch)
 
-        def batch_for_current_table_until_a_queue_full() -> tuple:
+        def batch_for_current_table_until_a_queue_full() -> typing.Generator[typing.Any, None, None]:
             nonlocal current_queue, current_table
 
             while current_queue:
@@ -216,12 +223,12 @@ def ingest(
 
     def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows) -> None:
 
-        def get_converter(sa_type) -> callable:
+        def get_converter(sa_type) -> typing.Callable[[typing.Any], str]:
 
-            def escape_array_item(text) -> str:
+            def escape_array_item(text: str) -> str:
                 return text.replace('\\', '\\\\').replace('"', '\\"')
 
-            def escape_string(text) -> str:
+            def escape_string(text: str) -> str:
                 return (
                     text.replace('\\', '\\\\')
                     .replace('\n', '\\n')
@@ -254,12 +261,12 @@ def ingest(
                         + '}',
                     )
                 )
-            elif isinstance(sa_type, sa.dialects.postgresql.BYTEA):
+            elif isinstance(sa_type, BYTEA):
                 return lambda v: (null if v is None else r'\\x' + v.hex().upper())
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
 
-        def logged(rows) -> None:
+        def logged(rows) -> typing.Generator[typing.Any, None, None]:
             i = None
             logger.info("Ingesting from source into the database...")
             for i, row in enumerate(rows):
@@ -333,7 +340,7 @@ def ingest(
 
     for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
 
-        batch_ingest_tables = {}
+        batch_ingest_tables: typing.Dict = {}
 
         for target_table, live_table, table_batch in split_batch_into_tables(live_tables, batch):
             if target_table in batch_ingest_tables:

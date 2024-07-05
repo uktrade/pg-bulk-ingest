@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pg-bulk-ingest"
 version = "0.0.0.dev0"
 authors = [
-  { name="Department for International Trade", email="sre@digital.trade.gov.uk" },
+  { name="Department for Business and Trade", email="sre@digital.trade.gov.uk" },
 ]
 description = "A collection of Python utility functions for ingesting data into SQLAlchemy-defined PostgreSQL tables, automatically migrating them as needed, and minimising locking"
 readme = "README.md"
@@ -28,14 +28,14 @@ dev = [
     "psycopg2>=2.9.2",
     "pytest>=7.2.1",
     # Type checking
-    "mypy>=0.971",
+    "mypy <1.5",
 ]
 ci = [
     "pytest",
     "pytest-cov",
     "coverage",
     # Type checking
-    "mypy>=0.971",
+    "mypy <1.5",
 ]
 ci-psycopg2-sqlalchemy1 = [
     "psycopg2==2.9.2",
@@ -58,5 +58,15 @@ ci-psycopg3-sqlalchemy2 = [
 
 [tool.hatch.build]
 include = [
-  "pg_bulk_ingest.py"
+  "pg_bulk_ingest"
+]
+
+[tool.hatch.envs.dev]
+dependencies = [
+    "psycopg>=3.1.4",
+    "psycopg2>=2.9.2",
+    "pytest>=7.2.1",
+    # Type checking
+    "mypy <1.5",
+    "pytest",
 ]
