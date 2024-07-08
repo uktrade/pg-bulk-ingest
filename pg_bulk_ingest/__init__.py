@@ -164,7 +164,7 @@ def ingest(
 
     def split_batch_into_tables(live_tables, combined_batch) -> typing.Generator[typing.Tuple[sa.Table, sa.Table, typing.Iterable[typing.Tuple[sa.Table, typing.Tuple]]], None, None]:
         ingested_tables: typing.Set[typing.Optional[sa.Table]] = set()
-        queues: defaultdict[typing.Any, deque] = defaultdict(deque)
+        queues: typing.DefaultDict[typing.Any, deque] = defaultdict(deque)
         current_queue = None
         current_table = None
 
