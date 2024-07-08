@@ -297,7 +297,7 @@ def ingest(
     for target_table in metadata.tables.values():
         logger.info("Creating target table %s if it doesn't already exist", target_table)
         if target_table.schema not in sa.inspect(conn).get_schema_names():
-            schema = sa.schema.CreateSchema(target_table.schema)
+            schema = sa.schema.CreateSchema(target_table.schema) # type: ignore
             conn.execute(schema)
         initial_table_metadata = sa.MetaData()
         initial_table = sa.Table(
@@ -358,7 +358,7 @@ def ingest(
                     target_table_column_names = tuple(col.name for col in target_table.columns)
                     columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
                     conn.execute(sa.insert(ingest_table).from_select(
-                        tuple(col.name for col in columns_to_select),
+                        typing.cast(typing.List[typing.Any], tuple(col.name for col in columns_to_select)),
                         sa.select(*columns_to_select),
                     ))
                 ingested_target_tables.add(target_table)
