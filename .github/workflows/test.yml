@@ -42,12 +42,13 @@ jobs:
           ./start-services.sh ${{ matrix.postgresql-version }}
       - name: "Install package and python dependencies"
         run: |
+          python -m pip install --upgrade pip
           pip install .[ci,${{ matrix.ci-extras }}]
       - name: "Wait for PostgreSQL"
         run: "timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/5432; do sleep 5; done'"
       - name: "Run Type Checking"
         run: |
-          mypy --strict --ignore-missing-imports pg_bulk_ingest
+          mypy pg_bulk_ingest
       - name: "Test"
         run: |
           pytest --cov

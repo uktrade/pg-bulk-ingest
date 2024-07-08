@@ -297,7 +297,7 @@ def ingest(
     for target_table in metadata.tables.values():
         logger.info("Creating target table %s if it doesn't already exist", target_table)
         if target_table.schema not in sa.inspect(conn).get_schema_names():
-            schema = sa.schema.CreateSchema(target_table.schema) # type: ignore
+            schema = sa.schema.CreateSchema(target_table.schema)
             conn.execute(schema)
         initial_table_metadata = sa.MetaData()
         initial_table = sa.Table(
