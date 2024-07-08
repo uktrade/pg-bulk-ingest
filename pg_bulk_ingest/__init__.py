@@ -1,26 +1,33 @@
 import uuid
 import logging
 import math
+import typing
+import types
 from collections import deque, defaultdict
 from contextlib import contextmanager
-from enum import Enum
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import BYTEA
 import json
-from io import IOBase
 
 from pg_force_execute import pg_force_execute
 from to_file_like_obj import to_file_like_obj
 
-try:
-    from psycopg2 import sql as sql2
-except ImportError:
-    sql2 = None
+# Declare sql2 and sql3 with initial None values and explicit type annotations
+sql2: typing.Optional[types.ModuleType] = None
+sql3: typing.Optional[types.ModuleType] = None
 
 try:
-    from psycopg import sql as sql3
+    from psycopg2 import sql as sql2_module
+    sql2 = sql2_module
 except ImportError:
-    sql3 = None
+    pass
+
+try:
+    from psycopg import sql as sql3_module
+    sql3 = sql3_module
+except ImportError:
+    pass
 
 
 class Upsert:
@@ -42,25 +49,26 @@ class Visibility:
     AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
 
-def ingest(
-        conn, metadata, batches, high_watermark=HighWatermark.LATEST,
-        visibility=Visibility.AFTER_EACH_BATCH, upsert=Upsert.IF_PRIMARY_KEY, delete=Delete.OFF,
-        get_pg_force_execute=lambda conn, logger: pg_force_execute(conn, logger=logger),
-        on_before_visible=lambda conn, ingest_table, batch_metadata: None, logger=logging.getLogger("pg_bulk_ingest"),
-        max_rows_per_table_buffer=10000,
-):
 
-    def temp_relation_name():
+def ingest(
+        conn:typing.Any, metadata:typing.Any, batches:typing.Any, high_watermark:str=HighWatermark.LATEST,
+        visibility:str=Visibility.AFTER_EACH_BATCH, upsert:str=Upsert.IF_PRIMARY_KEY, delete:str=Delete.OFF,
+        get_pg_force_execute:typing.Any=lambda conn, logger: pg_force_execute(conn, logger=logger),
+        on_before_visible:typing.Any=lambda conn, ingest_table, batch_metadata: None, logger: logging.Logger=logging.getLogger("pg_bulk_ingest"),
+        max_rows_per_table_buffer:int=10000,
+) -> None:
+
+    def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
     
-    def sql_and_copy_from_stdin(driver):
+    def sql_and_copy_from_stdin(driver: str) -> typing.Tuple[typing.Any, typing.Callable[[typing.Any, typing.Any, typing.Any], None]]:
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
         # COPY ... FROM STDIN API via write_row that handles escaping,
         # but for consistency with Psycopg 2 we don't use it
-        def copy_from_stdin2(cursor, query, f):
+        def copy_from_stdin2(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
             cursor.copy_expert(query, f, size=65536)
 
-        def copy_from_stdin3(cursor, query, f):
+        def copy_from_stdin3(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
             with cursor.copy(query) as copy:
                 while True:
                     chunk = f.read(65536)
@@ -73,12 +81,12 @@ def ingest(
             'psycopg': (sql3, copy_from_stdin3),
         }[driver]
 
-    def bind_identifiers(sql, conn, query_str, *identifiers):
+    def bind_identifiers(sql: typing.Any, conn: typing.Any, query_str: str, *identifiers: typing.Optional[str]) -> sa.sql.elements.TextClause:
         return sa.text(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
         ).as_string(conn.connection.driver_connection))
 
-    def save_comment(sql, conn, schema, table, comment):
+    def save_comment(sql: typing.Any, conn: typing.Any, schema: typing.Any, table: sa.Table, comment: str) -> None:
         conn.execute(sa.text(sql.SQL('''
              COMMENT ON TABLE {schema}.{table} IS {comment}
         ''').format(
@@ -87,7 +95,7 @@ def ingest(
             comment=sql.Literal(comment),
         ).as_string(conn.connection.driver_connection)))
 
-    def create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table):
+    def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False
 
         if delete == Delete.BEFORE_FIRST_BATCH:
@@ -104,7 +112,7 @@ def ingest(
 
             # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
             # both in reflected tables, and when
-            def get_dialect_kwargs(index):
+            def get_dialect_kwargs(index: typing.Any) -> typing.Dict[str, typing.Any]:
                 dialect_kwargs = dict(index.dialect_kwargs)
                 if 'postgresql_include' in dialect_kwargs and not dialect_kwargs['postgresql_include']:
                     del dialect_kwargs['postgresql_include']
@@ -113,7 +121,7 @@ def ingest(
             # Don't migrate if indexes only differ by name
             # Only way discovered is to temporarily change the name in each index name object
             @contextmanager
-            def ignored_name(indexes):
+            def ignored_name(indexes: typing.Iterable[typing.Any]) -> typing.Generator[None, None, None]:
                 names = [index.name for index in indexes]
                 for index in indexes:
                     index.name = '__IGNORE__'
@@ -155,15 +163,15 @@ def ingest(
 
         return ingest_table
 
-    def split_batch_into_tables(live_tables, combined_batch):
-        ingested_tables = set()
-        queues = defaultdict(deque)
+    def split_batch_into_tables(live_tables: typing.Any, combined_batch: typing.Any) -> typing.Generator[typing.Tuple[sa.Table, sa.Table, typing.Iterable[typing.Tuple[sa.Table, typing.Tuple[typing.Any]]]], None, None]:
+        ingested_tables: typing.Set[typing.Optional[sa.Table]] = set()
+        queues: typing.DefaultDict[typing.Any, typing.Deque[typing.Any]] = defaultdict(deque)
         current_queue = None
         current_table = None
 
         batch_iter = iter(batch)
 
-        def batch_for_current_table_until_a_queue_full():
+        def batch_for_current_table_until_a_queue_full() -> typing.Generator[typing.Any, None, None]:
             nonlocal current_queue, current_table
 
             while current_queue:
@@ -214,14 +222,14 @@ def ingest(
         for table in (set(live_tables.keys()) - ingested_tables):
             yield table, live_tables[table], ()
 
-    def csv_copy(sql, copy_from_stdin, conn, user_facing_table, batch_table, rows):
+    def csv_copy(sql: typing.Any, copy_from_stdin: typing.Any, conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any) -> None:
 
-        def get_converter(sa_type):
+        def get_converter(sa_type: typing.Any) -> typing.Callable[[typing.Any], str]:
 
-            def escape_array_item(text):
+            def escape_array_item(text: str) -> str:
                 return text.replace('\\', '\\\\').replace('"', '\\"')
 
-            def escape_string(text):
+            def escape_string(text: str) -> str:
                 return (
                     text.replace('\\', '\\\\')
                     .replace('\n', '\\n')
@@ -254,12 +262,12 @@ def ingest(
                         + '}',
                     )
                 )
-            elif isinstance(sa_type, sa.dialects.postgresql.BYTEA):
+            elif isinstance(sa_type, BYTEA):
                 return lambda v: (null if v is None else r'\\x' + v.hex().upper())
             else:
                 return lambda v: (null if v is None else escape_string(str(v)))
 
-        def logged(rows):
+        def logged(rows: typing.Iterable[typing.Any]) -> typing.Generator[typing.Any, None, None]:
             i = None
             logger.info("Ingesting from source into the database...")
             for i, row in enumerate(rows):
@@ -289,7 +297,8 @@ def ingest(
     for target_table in metadata.tables.values():
         logger.info("Creating target table %s if it doesn't already exist", target_table)
         if target_table.schema not in sa.inspect(conn).get_schema_names():
-            conn.execute(sa.schema.CreateSchema(target_table.schema))
+            schema = sa.schema.CreateSchema(target_table.schema)
+            conn.execute(schema)
         initial_table_metadata = sa.MetaData()
         initial_table = sa.Table(
             target_table.name,
@@ -333,7 +342,7 @@ def ingest(
 
     for high_watermark_value, batch_metadata, batch in batches(high_watermark_value):
 
-        batch_ingest_tables = {}
+        batch_ingest_tables: typing.Dict[typing.Any, typing.Any] = {}
 
         for target_table, live_table, table_batch in split_batch_into_tables(live_tables, batch):
             if target_table in batch_ingest_tables:
@@ -349,7 +358,7 @@ def ingest(
                     target_table_column_names = tuple(col.name for col in target_table.columns)
                     columns_to_select = tuple(col for col in live_table.columns.values() if col.name in target_table_column_names)
                     conn.execute(sa.insert(ingest_table).from_select(
-                        tuple(col.name for col in columns_to_select),
+                        typing.cast(typing.List[typing.Any], tuple(col.name for col in columns_to_select)),
                         sa.select(*columns_to_select),
                     ))
                 ingested_target_tables.add(target_table)
