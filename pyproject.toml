@@ -70,3 +70,7 @@ dependencies = [
     "mypy <1.5",
     "pytest",
 ]
+
+[tool.mypy]
+ignore_missing_imports = true
+
