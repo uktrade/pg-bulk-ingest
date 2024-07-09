@@ -132,7 +132,7 @@ def sync(
         schema=schema,
     )
 
-    def batches(high_watermark):
+    def batches(high_watermark_value):
         # No data for now
         yield from ()
 
