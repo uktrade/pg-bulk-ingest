@@ -1,11 +1,13 @@
 import uuid
 import io
 import itertools
+import os
 from contextlib import contextmanager
 from datetime import date
 
 import pytest
 import sqlalchemy as sa
+from pgvector.sqlalchemy import VECTOR
 
 try:
     # psycopg2
@@ -1554,3 +1556,49 @@ def test_streaming_behaviour_of_to_file_object() -> None:
     f = to_file_like_obj(with_count((b'a', b'b')), bytes)
     f.read(1)
     assert total_read == 1
+
+
+@pytest.mark.skipif(float(os.environ.get('PG_VERSION', '14.0')) < 14.0, reason="pgvector not available")
+def test_insert_vectors():
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    with engine.connect() as conn:
+        conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("embeddings", VECTOR),
+        schema="my_schema",
+    )
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, ([1.0, 2.0, 3.0],)),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, ([4.0, 5.0, 6.0],)),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_2)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('embeddings')).fetchall()
+
+    assert (results[0][0] == [1.0, 2.0, 3.0]).all()
+    assert (results[1][0] == [4.0, 5.0, 6.0]).all()
+
+    assert len(metadata.tables) == 1
