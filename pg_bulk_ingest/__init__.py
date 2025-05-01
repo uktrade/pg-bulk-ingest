@@ -49,7 +49,6 @@ class Visibility:
     AFTER_EACH_BATCH = '__AFTER_EACH_BATCH__'
 
 
-
 def ingest(
         conn:typing.Any, metadata:typing.Any, batches:typing.Any, high_watermark:str=HighWatermark.LATEST,
         visibility:str=Visibility.AFTER_EACH_BATCH, upsert:str=Upsert.IF_PRIMARY_KEY, delete:str=Delete.OFF,

@@ -204,6 +204,7 @@ def test_batches() -> None:
         (2,),
     ]
 
+
 def test_if_no_batches_then_only_target_table_visible() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     with engine.connect() as conn:
@@ -1449,6 +1450,7 @@ def test_multiple_tables() -> None:
     assert results_a == [(i,) for i in range(0, 20000)]
     assert results_b == [(i,) for i in range(0, 20000)]
 
+
 def test_multiple_tables_high_watermark() -> None:
 
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
@@ -1503,11 +1505,13 @@ def test_multiple_tables_high_watermark() -> None:
     assert results_a == [(1,), (1,), (1,)]
     assert results_b == [(2,), (2,), (2,)]
 
+
 def test_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read()
     assert obj_read == b'123'
+
 
 def test_str_to_file_like_obj() -> None:
     iterable=['1','2','3']
@@ -1515,17 +1519,20 @@ def test_str_to_file_like_obj() -> None:
     obj_read = obj.read()
     assert obj_read == '123'
 
+
 def test_read_less_bytes_in_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read(size=1)
     assert obj_read == b'1'
 
+
 def test_read_more_bytes_than_available_in_to_file_object_function() -> None:
     iterable=[b'1',b'2',b'3']
     obj = to_file_like_obj(iterable, bytes)
     obj_read = obj.read(size=10)
     assert obj_read == b'123'
+
 
 def test_reading_file_obj_twice() -> None:
     iterable=[b'1',b'2',b'3']
@@ -1534,6 +1541,7 @@ def test_reading_file_obj_twice() -> None:
     assert obj_read == b'123'
     obj_read_twice = obj.read()
     assert obj_read_twice == b''
+
 
 def test_negative_or_none_sizes() -> None:
     iterable=[b'1',b'2',b'3']
@@ -1545,6 +1553,7 @@ def test_negative_or_none_sizes() -> None:
     obj_read_2 = obj_2.read(None)
     print(obj_read_2)
     assert obj_read_2 == b'123'
+
 
 def test_streaming_behaviour_of_to_file_object() -> None:
     total_read = 0
