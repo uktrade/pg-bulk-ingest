@@ -55,4 +55,6 @@ jobs:
         run: |
           python --version
           PG_VERSION=${{ matrix.postgresql-version }} pytest --cov
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
