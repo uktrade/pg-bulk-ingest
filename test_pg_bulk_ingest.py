@@ -2,12 +2,12 @@ import uuid
 import io
 import itertools
 import os
+import sys
 from contextlib import contextmanager
 from datetime import date
 
 import pytest
 import sqlalchemy as sa
-from pgvector.sqlalchemy import VECTOR
 
 try:
     # psycopg2
@@ -1567,8 +1567,11 @@ def test_streaming_behaviour_of_to_file_object() -> None:
     assert total_read == 1
 
 
+@pytest.mark.skipif(sys.version_info[:2] < (3,8,0), reason="VECTOR type not available in pgvector.sqlalchemy")
 @pytest.mark.skipif(float(os.environ.get('PG_VERSION', '14.0')) < 14.0, reason="pgvector not available")
 def test_insert_vectors():
+    from pgvector.sqlalchemy import VECTOR
+
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     with engine.connect() as conn:

@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         python-version:
+          - "3.7.7"
           - "3.8.2"
           - "3.9.0"
           - "3.10.0"
@@ -37,6 +38,10 @@ jobs:
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v6
         with:
+          # The version of uv itself is pinned, which allows us to install older Python. Suspect
+          # that eventually to install newer Python, will need to have the version of uv specified
+          # in the matrix
+          version: "0.6.17"
           python-version: ${{ matrix.python-version }}
           activate-environment: true
       - name: "Run PostgreSQL"
