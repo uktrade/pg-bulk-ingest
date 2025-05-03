@@ -49,9 +49,24 @@ ci-psycopg2-sqlalchemy2 = [
     "sqlalchemy==2.0.0",
     "to-file-like-obj==0.0.5",
 ]
+ci-psycopg2-9-10-sqlalchemy1 = [
+    "psycopg2==2.9.10",
+    "sqlalchemy==1.4.24",
+    "to-file-like-obj==0.0.5",
+]
 ci-psycopg3-sqlalchemy2 = [
     "psycopg==3.1.4",
     "sqlalchemy==2.0.0",
+    "to-file-like-obj==0.0.5",
+]
+ci-psycopg2-9-10-sqlalchemy2-0-31 = [
+    "psycopg2==2.9.10",
+    "sqlalchemy==2.0.31",
+    "to-file-like-obj==0.0.5",
+]
+ci-psycopg3-sqlalchemy2-0-31 = [
+    "psycopg==3.1.4",
+    "sqlalchemy==2.0.31",
     "to-file-like-obj==0.0.5",
 ]
 
