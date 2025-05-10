@@ -553,9 +553,8 @@ def ingest(
             if ingest_table is not target_table:
                 with get_pg_force_execute(conn, logger):
                     dependent_views = get_dependent_views(sql, conn, target_table.schema, target_table.name)
-                    if dependent_views:
-                        logger.info("Dropping dependent views for %s.%s", str(target_table.schema), str(target_table.name))
-                        drop_views(sql, conn, dependent_views)
+                    logger.info("Dropping dependent views for %s.%s", str(target_table.schema), str(target_table.name))
+                    drop_views(sql, conn, dependent_views)
                     target_table.drop(conn)
                     rename_query = sql.SQL('''
                         ALTER TABLE {schema}.{ingest_table}
@@ -566,9 +565,8 @@ def ingest(
                         target_table=sql.Identifier(target_table.name),
                     )
                     conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
-                    if dependent_views:
-                        logger.info("Recreating dependent views for %s.%s", str(target_table.schema), str(target_table.name))
-                        recreate_views(sql, conn, dependent_views)
+                    logger.info("Recreating dependent views for %s.%s", str(target_table.schema), str(target_table.name))
+                    recreate_views(sql, conn, dependent_views)
 
         if callable(high_watermark_value):
             high_watermark_value = high_watermark_value()
