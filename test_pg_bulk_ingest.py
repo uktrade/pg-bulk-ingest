@@ -1616,6 +1616,7 @@ def test_insert_vectors():
 
     assert len(metadata.tables) == 1
 
+
 def test_ingest_with_dependent_views() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -1762,6 +1763,7 @@ def test_ingest_with_multiple_dependent_views() -> None:
         assert view1_results == [(3, 'c'), (4, 'd')]
         assert view2_results == [(1, 'a')]
 
+
 def test_ingest_with_cascading_views() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -1841,3 +1843,360 @@ def test_ingest_with_cascading_views() -> None:
         ''')).fetchall()
         assert base_view_results == [(2, 'b'), (3, 'c'), (4, 'd')]
         assert cascading_view_results == [(2, 'b')]
+
+
+def test_ingest_with_cyclic_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, lambda _: [])
+
+    view1_name = f"cyclic_view1_{table_name}"
+    view2_name = f"cyclic_view2_{table_name}"
+
+    with engine.connect() as conn:
+        # First create view1 referencing the base table
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view1_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+
+        # Then create view2 referencing view1
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view2_name} AS
+            SELECT * FROM my_schema.{view1_name}
+        '''))
+
+        # Finally alter view1 to also reference view2, creating a cycle
+        conn.execute(sa.text(f'''
+            CREATE OR REPLACE VIEW my_schema.{view1_name} AS
+            SELECT v1.id, v1.value_1
+            FROM my_schema.{table_name} v1
+            WHERE v1.id > 1
+            AND EXISTS (SELECT 1 FROM my_schema.{view2_name} v2 WHERE v2.id = v1.id)
+        '''))
+        conn.commit()
+
+        original_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view1_name}', '{view2_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+    metadata_2 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, lambda _: [])
+
+        new_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view1_name}', '{view2_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+    assert original_views == new_views
+
+
+def test_ingest_with_complex_view_cycle() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, lambda _: [])
+
+    view1_name = f"cycle_view1_{table_name}"
+    view2_name = f"cycle_view2_{table_name}"
+    view3_name = f"cycle_view3_{table_name}"
+
+    with engine.connect() as conn:
+        # Create initial versions of all views
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view1_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view2_name} AS
+            SELECT * FROM my_schema.{view1_name}
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view3_name} AS
+            SELECT * FROM my_schema.{view2_name}
+        '''))
+
+        # Now create the cycle: view1 -> view2 -> view3 -> view1
+        conn.execute(sa.text(f'''
+            CREATE OR REPLACE VIEW my_schema.{view1_name} AS
+            SELECT v1.id, v1.value_1
+            FROM my_schema.{table_name} v1
+            WHERE EXISTS (SELECT 1 FROM my_schema.{view3_name} v3 WHERE v3.id = v1.id)
+        '''))
+        conn.commit()
+
+        original_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view1_name}', '{view2_name}', '{view3_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+    metadata_2 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, lambda _: [])
+
+        new_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view1_name}', '{view2_name}', '{view3_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+    assert original_views == new_views
+
+
+def test_ingest_with_complex_expression_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+    table_name = "my_table_" + uuid.uuid4().hex
+
+    metadata_1 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.INTEGER),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, lambda _: [])
+
+    view_names = [f"complex_view{i}_{table_name}" for i in range(1, 4)]
+
+    with engine.connect() as conn:
+        # View with window functions, complex expressions
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_names[0]} AS
+            SELECT
+                id,
+                value_1,
+                CASE WHEN value_1 > 0 THEN value_2 ELSE 'default' END as conditional_value,
+                ROW_NUMBER() OVER (PARTITION BY value_2 ORDER BY value_1) as row_num,
+                LAG(value_1) OVER (ORDER BY id) as prev_value
+            FROM my_schema.{table_name}
+        '''))
+
+        # View with multiple CTEs and self-joins
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_names[1]} AS
+            WITH RECURSIVE cte1 AS (
+                SELECT id, value_1, 1 as level
+                FROM my_schema.{table_name}
+                WHERE value_1 > 0
+                UNION ALL
+                SELECT t.id, t.value_1, c.level + 1
+                FROM my_schema.{table_name} t
+                JOIN cte1 c ON t.id = c.id + 1
+                WHERE c.level < 3
+            ),
+            cte2 AS (
+                SELECT id, string_agg(value_2, ',') as agg_value
+                FROM my_schema.{table_name}
+                GROUP BY id
+            )
+            SELECT
+                c1.id,
+                c1.value_1,
+                c1.level,
+                c2.agg_value,
+                t.value_2
+            FROM cte1 c1
+            LEFT JOIN cte2 c2 ON c1.id = c2.id
+            LEFT JOIN my_schema.{table_name} t ON t.id = c1.id
+        '''))
+
+        # View with complex subqueries and aggregations
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_names[2]} AS
+            SELECT
+                t1.id,
+                t1.value_1,
+                (SELECT count(*) FROM my_schema.{table_name} t2 WHERE t2.value_1 < t1.value_1) as smaller_count,
+                exists(SELECT 1 FROM my_schema.{view_names[0]} v WHERE v.row_num = 1) as has_first_rows,
+                (SELECT avg(t3.value_1)
+                 FROM my_schema.{table_name} t3
+                 WHERE t3.id <= t1.id) as running_avg
+            FROM my_schema.{table_name} t1
+            WHERE t1.id IN (
+                SELECT v2.id
+                FROM my_schema.{view_names[1]} v2
+                WHERE v2.level = 2
+            )
+        '''))
+        conn.commit()
+
+        original_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ({','.join(f"'{v}'" for v in view_names)})
+            ORDER BY viewname
+        ''')).fetchall()
+
+    metadata_2 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.INTEGER),
+        sa.Column("value_2", sa.VARCHAR),
+        sa.Column("value_3", sa.INTEGER),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, lambda _: [])
+
+        new_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ({','.join(f"'{v}'" for v in view_names)})
+            ORDER BY viewname
+        ''')).fetchall()
+
+    assert original_views == new_views
+
+
+def test_ingest_with_materialized_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+    table_name = "my_table_" + uuid.uuid4().hex
+
+    metadata_1 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.INTEGER),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, lambda _: [])
+
+    view_name = f"regular_view_{table_name}"
+    mat_view_name = f"mat_view_{table_name}"
+    dependent_view_name = f"dependent_view_{table_name}"
+
+    with engine.connect() as conn:
+        # Create materialized view
+        conn.execute(sa.text(f'''
+            CREATE MATERIALIZED VIEW my_schema.{mat_view_name} AS
+            SELECT
+                id,
+                value_1,
+                value_2,
+                count(*) OVER (PARTITION BY value_2) as group_count
+            FROM my_schema.{table_name}
+        '''))
+
+        # Create regular view that depends on materialized view
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name} AS
+            SELECT id, value_1, value_2
+            FROM my_schema.{mat_view_name}
+            WHERE group_count > 1
+        '''))
+
+        # Create another view that depends on both
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{dependent_view_name} AS
+            SELECT
+                t.id,
+                t.value_1,
+                mv.group_count,
+                v.value_2
+            FROM my_schema.{table_name} t
+            LEFT JOIN my_schema.{mat_view_name} mv ON t.id = mv.id
+            LEFT JOIN my_schema.{view_name} v ON t.id = v.id
+        '''))
+        conn.commit()
+
+        original_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view_name}', '{dependent_view_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+        original_mat_view = conn.execute(sa.text(f'''
+            SELECT schemaname, matviewname, definition
+            FROM pg_matviews
+            WHERE matviewname = '{mat_view_name}'
+        ''')).fetchall()
+
+    metadata_2 = sa.MetaData()
+    sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.INTEGER),
+        sa.Column("value_2", sa.VARCHAR),
+        sa.Column("value_3", sa.INTEGER),
+        schema="my_schema",
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, lambda _: [])
+
+        new_views = conn.execute(sa.text(f'''
+            SELECT schemaname, viewname, definition
+            FROM pg_views
+            WHERE viewname IN ('{view_name}', '{dependent_view_name}')
+            ORDER BY viewname
+        ''')).fetchall()
+
+        new_mat_view = conn.execute(sa.text(f'''
+            SELECT schemaname, matviewname, definition
+            FROM pg_matviews
+            WHERE matviewname = '{mat_view_name}'
+        ''')).fetchall()
+
+    assert original_views == new_views
+    assert original_mat_view == new_mat_view
