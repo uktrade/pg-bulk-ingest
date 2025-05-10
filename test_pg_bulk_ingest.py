@@ -1,6 +1,4 @@
 import uuid
-import io
-import itertools
 import os
 import sys
 from contextlib import contextmanager
@@ -8,6 +6,7 @@ from datetime import date
 
 import pytest
 import sqlalchemy as sa
+from to_file_like_obj import to_file_like_obj
 
 try:
     # psycopg2
@@ -20,7 +19,7 @@ except ImportError:
 
 engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
 
-from pg_bulk_ingest import Delete, ingest, HighWatermark, Upsert, to_file_like_obj
+from pg_bulk_ingest import Delete, ingest, Upsert
 
 
 def _get_table_oid(engine, table) -> int:
@@ -343,7 +342,7 @@ def test_batch_visible_only_after_batch_complete() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
 
-    assert table_not_found_before_batch_1 == True
+    assert table_not_found_before_batch_1
     assert results_after_batch_1 == [
         (1,),
         (2,),
@@ -449,8 +448,6 @@ def test_upsert_off() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    oid_1 = _get_table_oid(engine, my_table)
-
     batches_2 = lambda _: (
         (
             None, None,
@@ -536,7 +533,7 @@ def test_high_watermark_is_preserved_between_ingests() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
@@ -575,7 +572,7 @@ def test_high_watermark_is_preserved_between_ingests_no_primary_key() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER),
@@ -614,7 +611,7 @@ def test_high_watermark_is_preserved_if_exception() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
@@ -662,7 +659,7 @@ def test_high_watermark_is_passed_into_the_batch_function() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
@@ -888,7 +885,7 @@ def test_migrate_add_gin_index() -> None:
     assert oid_1 != oid_2
 
     metadata_3 = sa.MetaData()
-    my_table_3 = sa.Table(
+    sa.Table(
         my_table_1.name,
         metadata_3,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1045,7 +1042,7 @@ def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved() ->
         ingest(conn, metadata_1, batches_1)
 
     metadata_2 = sa.MetaData()
-    my_table_2 = sa.Table(
+    sa.Table(
         my_table_1.name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1348,7 +1345,7 @@ def test_high_watermark_with_earliest() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
@@ -1387,7 +1384,7 @@ def test_high_watermark_callable() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
-    my_table = sa.Table(
+    sa.Table(
         "my_table_" + uuid.uuid4().hex,
         metadata,
         sa.Column("id_1", sa.INTEGER, primary_key=True),
@@ -1630,15 +1627,11 @@ def test_ingest_with_dependent_views() -> None:
         schema="my_schema",
     )
 
-    batches_1 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_1, (1, 'a')),
-                (my_table_1, (2, 'b')),
-            ),
-        ),
-    )
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
@@ -1666,14 +1659,10 @@ def test_ingest_with_dependent_views() -> None:
         schema="my_schema",
     )
 
-    batches_2 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_2, (3, 'c', 'd')),
-            ),
-        ),
-    )
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (3, 'c', 'd')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
 
@@ -1682,6 +1671,7 @@ def test_ingest_with_dependent_views() -> None:
             SELECT * FROM my_schema.{view_name} ORDER BY id
         ''')).fetchall()
         assert view_results == [(2, 'b'), (3, 'c')]
+
 
 def test_ingest_with_multiple_dependent_views() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
@@ -1696,16 +1686,12 @@ def test_ingest_with_multiple_dependent_views() -> None:
         schema="my_schema",
     )
 
-    batches_1 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_1, (1, 'a')),
-                (my_table_1, (2, 'b')),
-                (my_table_1, (3, 'c')),
-            ),
-        ),
-    )
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+            (my_table_1, (3, 'c')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
@@ -1742,14 +1728,10 @@ def test_ingest_with_multiple_dependent_views() -> None:
         schema="my_schema",
     )
 
-    batches_2 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_2, (4, 'd', 'e')),
-            ),
-        ),
-    )
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (4, 'd', 'e')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
 
@@ -1777,16 +1759,12 @@ def test_ingest_with_cascading_views() -> None:
         schema="my_schema",
     )
 
-    batches_1 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_1, (1, 'a')),
-                (my_table_1, (2, 'b')),
-                (my_table_1, (3, 'c')),
-            ),
-        ),
-    )
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+            (my_table_1, (3, 'c')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
@@ -1823,14 +1801,10 @@ def test_ingest_with_cascading_views() -> None:
         schema="my_schema",
     )
 
-    batches_2 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_2, (4, 'd', 'e')),
-            ),
-        ),
-    )
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (4, 'd', 'e')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
 
@@ -1850,7 +1824,7 @@ def test_ingest_with_cyclic_views() -> None:
 
     metadata_1 = sa.MetaData()
     table_name = "my_table_" + uuid.uuid4().hex
-    sa.Table(
+    my_table_1 = sa.Table(
         table_name,
         metadata_1,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1858,8 +1832,15 @@ def test_ingest_with_cyclic_views() -> None:
         schema="my_schema",
     )
 
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+            (my_table_1, (3, 'c')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_1, lambda _: [])
+        ingest(conn, metadata_1, batches_1)
 
     view1_name = f"cyclic_view1_{table_name}"
     view2_name = f"cyclic_view2_{table_name}"
@@ -1895,7 +1876,7 @@ def test_ingest_with_cyclic_views() -> None:
         ''')).fetchall()
 
     metadata_2 = sa.MetaData()
-    sa.Table(
+    my_table_2 = sa.Table(
         table_name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1904,8 +1885,14 @@ def test_ingest_with_cyclic_views() -> None:
         schema="my_schema",
     )
 
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (4, 'd', 'e')),
+            (my_table_2, (5, 'f', 'g')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_2, lambda _: [])
+        ingest(conn, metadata_2, batches_2)
 
         new_views = conn.execute(sa.text(f'''
             SELECT schemaname, viewname, definition
@@ -1922,7 +1909,7 @@ def test_ingest_with_complex_view_cycle() -> None:
 
     metadata_1 = sa.MetaData()
     table_name = "my_table_" + uuid.uuid4().hex
-    sa.Table(
+    my_table_1 = sa.Table(
         table_name,
         metadata_1,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1930,8 +1917,15 @@ def test_ingest_with_complex_view_cycle() -> None:
         schema="my_schema",
     )
 
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+            (my_table_1, (3, 'c')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_1, lambda _: [])
+        ingest(conn, metadata_1, batches_1)
 
     view1_name = f"cycle_view1_{table_name}"
     view2_name = f"cycle_view2_{table_name}"
@@ -1969,7 +1963,7 @@ def test_ingest_with_complex_view_cycle() -> None:
         ''')).fetchall()
 
     metadata_2 = sa.MetaData()
-    sa.Table(
+    my_table_2 = sa.Table(
         table_name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -1978,8 +1972,14 @@ def test_ingest_with_complex_view_cycle() -> None:
         schema="my_schema",
     )
 
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (4, 'd', 'e')),
+            (my_table_2, (5, 'f', 'g')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_2, lambda _: [])
+        ingest(conn, metadata_2, batches_2)
 
         new_views = conn.execute(sa.text(f'''
             SELECT schemaname, viewname, definition
@@ -1996,7 +1996,7 @@ def test_ingest_with_complex_expression_views() -> None:
     table_name = "my_table_" + uuid.uuid4().hex
 
     metadata_1 = sa.MetaData()
-    sa.Table(
+    my_table_1 = sa.Table(
         table_name,
         metadata_1,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -2005,8 +2005,16 @@ def test_ingest_with_complex_expression_views() -> None:
         schema="my_schema",
     )
 
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 10, 'a')),
+            (my_table_1, (2, 20, 'b')),
+            (my_table_1, (3, 30, 'c')),
+            (my_table_1, (4, 40, 'b')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_1, lambda _: [])
+        ingest(conn, metadata_1, batches_1)
 
     view_names = [f"complex_view{i}_{table_name}" for i in range(1, 4)]
 
@@ -2080,7 +2088,7 @@ def test_ingest_with_complex_expression_views() -> None:
         ''')).fetchall()
 
     metadata_2 = sa.MetaData()
-    sa.Table(
+    my_table_2 = sa.Table(
         table_name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -2090,8 +2098,14 @@ def test_ingest_with_complex_expression_views() -> None:
         schema="my_schema",
     )
 
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (5, 50, 'c', 100)),
+            (my_table_2, (6, 60, 'd', 200)),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_2, lambda _: [])
+        ingest(conn, metadata_2, batches_2)
 
         new_views = conn.execute(sa.text(f'''
             SELECT schemaname, viewname, definition
@@ -2108,7 +2122,7 @@ def test_ingest_with_materialized_views() -> None:
     table_name = "my_table_" + uuid.uuid4().hex
 
     metadata_1 = sa.MetaData()
-    sa.Table(
+    my_table_1 = sa.Table(
         table_name,
         metadata_1,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -2117,8 +2131,16 @@ def test_ingest_with_materialized_views() -> None:
         schema="my_schema",
     )
 
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 10, 'a')),
+            (my_table_1, (2, 20, 'b')),
+            (my_table_1, (3, 30, 'b')),
+            (my_table_1, (4, 40, 'c')),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_1, lambda _: [])
+        ingest(conn, metadata_1, batches_1)
 
     view_name = f"regular_view_{table_name}"
     mat_view_name = f"mat_view_{table_name}"
@@ -2172,7 +2194,7 @@ def test_ingest_with_materialized_views() -> None:
         ''')).fetchall()
 
     metadata_2 = sa.MetaData()
-    sa.Table(
+    my_table_2 = sa.Table(
         table_name,
         metadata_2,
         sa.Column("id", sa.INTEGER, primary_key=True),
@@ -2182,8 +2204,14 @@ def test_ingest_with_materialized_views() -> None:
         schema="my_schema",
     )
 
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (5, 50, 'd', 100)),
+            (my_table_2, (6, 60, 'd', 200)),
+        )
+
     with engine.connect() as conn:
-        ingest(conn, metadata_2, lambda _: [])
+        ingest(conn, metadata_2, batches_2)
 
         new_views = conn.execute(sa.text(f'''
             SELECT schemaname, viewname, definition
@@ -2218,17 +2246,12 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
         schema="my.schema",
     )
 
-    batches_1 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_1, (1, 'a', 'b', 'c', 'd')),
-                (my_table_1, (2, 'e', 'f', 'g', 'h')),
-                (my_table_1, (3, 'i', 'j', 'j', 'k')),
-            ),
-        ),
-    )
-
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a', 'b', 'c', 'd')),
+            (my_table_1, (2, 'e', 'f', 'g', 'h')),
+            (my_table_1, (3, 'i', 'j', 'j', 'k')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
@@ -2303,15 +2326,10 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
         schema="my.schema",
     )
 
-    batches_2 = lambda _: (
-        (
-            None, None,
-            (
-                (my_table_2, (4, 'l', 'm', 'n', 'o', 'p')),
-            ),
-        ),
-    )
-
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (4, 'l', 'm', 'n', 'o', 'p')),
+        )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
 

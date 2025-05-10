@@ -167,17 +167,25 @@ def ingest(
             --    created in
             SELECT
                 view_deps.refobjid::regclass::text AS fully_qualified_name,
-                string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY attnum) as column_names,
-                string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod), ', ' ORDER BY attnum) as null_typed_columns,
-                pg_get_viewdef(view_deps.refobjid) AS query
+                string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY pg_attribute.attnum) as column_names,
+                string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod),
+                          ', ' ORDER BY pg_attribute.attnum) as null_typed_columns,
+                pg_get_viewdef(view_deps.refobjid) AS query,
+                c.relkind = 'm' as is_materialized
             FROM
                 view_deps
             INNER JOIN
                 pg_attribute
             ON
                 pg_attribute.attrelid = view_deps.refobjid
+            INNER JOIN
+                pg_class c
+            ON
+                c.oid = view_deps.refobjid
+            WHERE
+                pg_attribute.attnum > 0 AND NOT pg_attribute.attisdropped
             GROUP BY
-                view_deps.refobjid
+                view_deps.refobjid, c.relkind
         ''').format(
             schema=sql.Literal(schema),
             table=sql.Literal(table)
@@ -185,40 +193,65 @@ def ingest(
 
         results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
 
-        return [{
-            'fully_qualified_name': fully_qualified_name,
-            'column_names': column_names,
-            'null_typed_columns': null_typed_columns,
-            'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}'
-        } for fully_qualified_name, column_names, null_typed_columns, definition in results]
+        views = []
+        for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized in results:
+            column_names_list = [name.strip() for name in column_names.split(',')]
+            null_typed_columns_list = [col.strip() for col in null_typed_columns.split(',')]
+
+            seen_names = set()
+            unique_pairs = []
+            for name, null_typed in zip(column_names_list, null_typed_columns_list):
+                if name not in seen_names:
+                    seen_names.add(name)
+                    unique_pairs.append((name, null_typed))
+
+            unique_column_names, unique_null_typed_columns = zip(*unique_pairs) if unique_pairs else ([], [])
+
+            views.append({
+                'fully_qualified_name': fully_qualified_name,
+                'column_names': ', '.join(unique_column_names),
+                'null_typed_columns': ', '.join(unique_null_typed_columns),
+                'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}',
+                'is_materialized': is_materialized,
+                'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}'
+            })
+
+        return views
 
     def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            logger.info("Dropping VIEW %s", view["fully_qualified_name"])
+            view_type = "MATERIALIZED VIEW" if view["is_materialized"] else "VIEW"
+            logger.info("Dropping %s %s", view_type, view["fully_qualified_name"])
             query = sql.SQL('''
-                DROP VIEW IF EXISTS {fully_qualified_name} CASCADE
+                DROP {view_type} IF EXISTS {fully_qualified_name} CASCADE
             ''').format(
+                view_type=sql.SQL(view_type),
                 fully_qualified_name=sql.SQL(view["fully_qualified_name"])
             )
             conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
 
     def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            logger.info("Recreating dummy view %s", view['fully_qualified_name'])
-            dummy_query = sql.SQL('''
-                CREATE VIEW {fully_qualified_name} ({columns}) AS
-                SELECT {null_columns} FROM (SELECT 1) AS t LIMIT 0
-            ''').format(
-                fully_qualified_name=sql.SQL(view['fully_qualified_name']),
-                columns=sql.SQL(view['column_names']),
-                null_columns=sql.SQL(view['null_typed_columns'])
-            )
-            conn.execute(sa.text(dummy_query.as_string(conn.connection.driver_connection)))
-            conn.commit()
+            if not view["is_materialized"]:
+                logger.info("Recreating dummy view %s", view['fully_qualified_name'])
+                query = sql.SQL('''
+                    CREATE VIEW {fully_qualified_name} ({columns}) AS
+                    SELECT {null_columns} FROM (SELECT 1) AS t LIMIT 0
+                ''').format(
+                    fully_qualified_name=sql.SQL(view['fully_qualified_name']),
+                    columns=sql.SQL(view['column_names']),
+                    null_columns=sql.SQL(view['null_typed_columns'])
+                )
+                conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
+                conn.commit()
 
         for view in views:
-            logger.info("Recreating original view %s", view['fully_qualified_name'])
-            conn.execute(sa.text(view['definition']))
+            if view["is_materialized"]:
+                logger.info("Recreating original materialized view %s", view['fully_qualified_name'])
+                conn.execute(sa.text(view['materialized_definition']))
+            else:
+                logger.info("Recreating original view %s", view['fully_qualified_name'])
+                conn.execute(sa.text(view['definition']))
             conn.commit()
 
     def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
