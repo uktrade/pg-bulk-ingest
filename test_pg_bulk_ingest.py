@@ -68,7 +68,7 @@ def test_data_types() -> None:
 
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
-    
+
     assert results == [
         (4, 'a', date(2023, 1, 2), [1,2], {}, {}, b'\x80'),
         (5, 'b', None, [1,2], {}, {}, b'\x00'),
@@ -339,7 +339,7 @@ def test_batch_visible_only_after_batch_complete() -> None:
         yield None, None, batch_2()
         with engine.connect() as conn:
             results_after_batch_2 = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
-  
+
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
 
@@ -1490,7 +1490,7 @@ def test_multiple_tables_high_watermark() -> None:
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
-    
+
     assert high_watermarks == [None, 1]
 
     with engine.connect() as conn:
@@ -1585,6 +1585,7 @@ def test_insert_vectors():
         sa.Column("embeddings", VECTOR),
         schema="my_schema",
     )
+
     batches_1 = lambda _: (
         (
             None, None,
@@ -1614,3 +1615,229 @@ def test_insert_vectors():
     assert (results[1][0] == [4.0, 5.0, 6.0]).all()
 
     assert len(metadata.tables) == 1
+
+def test_ingest_with_dependent_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_1, (1, 'a')),
+                (my_table_1, (2, 'b')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    view_name = f"my_test_view_{table_name}"
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.commit()
+
+    with engine.connect() as conn:
+        view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view_name} ORDER BY id
+        ''')).fetchall()
+        assert view_results == [(2, 'b')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_2, (3, 'c', 'd')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with engine.connect() as conn:
+        view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view_name} ORDER BY id
+        ''')).fetchall()
+        assert view_results == [(2, 'b'), (3, 'c')]
+
+def test_ingest_with_multiple_dependent_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_1, (1, 'a')),
+                (my_table_1, (2, 'b')),
+                (my_table_1, (3, 'c')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    view1_name = f"my_test_view1_{table_name}"
+    view2_name = f"my_test_view2_{table_name}"
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view1_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 2
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view2_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id < 2
+        '''))
+        conn.commit()
+
+    with engine.connect() as conn:
+        view1_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view1_name} ORDER BY id
+        ''')).fetchall()
+        view2_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view2_name} ORDER BY id
+        ''')).fetchall()
+        assert view1_results == [(3, 'c')]
+        assert view2_results == [(1, 'a')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_2, (4, 'd', 'e')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with engine.connect() as conn:
+        view1_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view1_name} ORDER BY id
+        ''')).fetchall()
+        view2_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view2_name} ORDER BY id
+        ''')).fetchall()
+        assert view1_results == [(3, 'c'), (4, 'd')]
+        assert view2_results == [(1, 'a')]
+
+def test_ingest_with_cascading_views() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_1, (1, 'a')),
+                (my_table_1, (2, 'b')),
+                (my_table_1, (3, 'c')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    base_view_name = f"base_view_{table_name}"
+    cascading_view_name = f"cascading_view_{table_name}"
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{base_view_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{cascading_view_name} AS
+            SELECT id, value_1 FROM my_schema.{base_view_name} WHERE id < 3
+        '''))
+        conn.commit()
+
+    with engine.connect() as conn:
+        base_view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{base_view_name} ORDER BY id
+        ''')).fetchall()
+        cascading_view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{cascading_view_name} ORDER BY id
+        ''')).fetchall()
+        assert base_view_results == [(2, 'b'), (3, 'c')]
+        assert cascading_view_results == [(2, 'b')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_2, (4, 'd', 'e')),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with engine.connect() as conn:
+        base_view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{base_view_name} ORDER BY id
+        ''')).fetchall()
+        cascading_view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{cascading_view_name} ORDER BY id
+        ''')).fetchall()
+        assert base_view_results == [(2, 'b'), (3, 'c'), (4, 'd')]
+        assert cascading_view_results == [(2, 'b')]
