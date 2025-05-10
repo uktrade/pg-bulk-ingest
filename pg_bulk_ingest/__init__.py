@@ -167,8 +167,8 @@ def ingest(
             --    created in
             SELECT
                 view_deps.refobjid::regclass::text AS fully_qualified_name,
-                sum(1) AS num_columns,
-                string_agg(quote_ident(pg_attribute.attname) || ' ' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod), ', ' ORDER BY attnum) AS column_definitions,
+                string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY attnum) as column_names,
+                string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod), ', ' ORDER BY attnum) as null_typed_columns,
                 pg_get_viewdef(view_deps.refobjid) AS query
             FROM
                 view_deps
@@ -186,45 +186,38 @@ def ingest(
         results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
 
         return [{
-            'schema': name.split('.')[0].strip('"'),
-            'name': name.split('.')[1].strip('"'),
-            'columns': column_defs,
-            'definition': f'CREATE OR REPLACE VIEW {name} AS {definition}'
-        } for name, num_cols, column_defs, definition in results]
+            'fully_qualified_name': fully_qualified_name,
+            'column_names': column_names,
+            'null_typed_columns': null_typed_columns,
+            'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}'
+        } for fully_qualified_name, column_names, null_typed_columns, definition in results]
 
     def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            logger.info("Dropping VIEW %s.%s", view['schema'], view['name'])
+            logger.info("Dropping VIEW %s", view["fully_qualified_name"])
             query = sql.SQL('''
-                DROP VIEW IF EXISTS {schema}.{view} CASCADE
+                DROP VIEW IF EXISTS {fully_qualified_name} CASCADE
             ''').format(
-                schema=sql.Identifier(view['schema']),
-                view=sql.Identifier(view['name'])
+                fully_qualified_name=sql.SQL(view["fully_qualified_name"])
             )
             conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
 
     def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            logger.info("Recreating dummy view %s.%s", view['schema'], view['name'])
-            column_names = [col.split()[0] for col in view['columns'].split(', ')]
-            column_types = [col.split(' ', 1)[1] for col in view['columns'].split(', ')]
+            logger.info("Recreating dummy view %s", view['fully_qualified_name'])
             dummy_query = sql.SQL('''
-                CREATE VIEW {schema}.{view} ({columns}) AS
+                CREATE VIEW {fully_qualified_name} ({columns}) AS
                 SELECT {null_columns} FROM (SELECT 1) AS t LIMIT 0
             ''').format(
-                schema=sql.Identifier(view['schema']),
-                view=sql.Identifier(view['name']),
-                columns=sql.SQL(', ').join(sql.Identifier(name) for name in column_names),
-                null_columns=sql.SQL(', ').join(
-                    sql.SQL('NULL::{}').format(sql.SQL(type_))
-                    for type_ in column_types
-                )
+                fully_qualified_name=sql.SQL(view['fully_qualified_name']),
+                columns=sql.SQL(view['column_names']),
+                null_columns=sql.SQL(view['null_typed_columns'])
             )
             conn.execute(sa.text(dummy_query.as_string(conn.connection.driver_connection)))
             conn.commit()
 
         for view in views:
-            logger.info("Recreating original view %s.%s", view['schema'], view['name'])
+            logger.info("Recreating original view %s", view['fully_qualified_name'])
             conn.execute(sa.text(view['definition']))
             conn.commit()
 

@@ -2200,3 +2200,139 @@ def test_ingest_with_materialized_views() -> None:
 
     assert original_views == new_views
     assert original_mat_view == new_mat_view
+
+
+def test_ingest_with_views_and_wacky_identifiers() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my.table" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("normal_id", sa.INTEGER, primary_key=True),
+        sa.Column("column.with.dots", sa.VARCHAR),
+        sa.Column("column with spaces", sa.VARCHAR),
+        sa.Column('column"with"quotes', sa.VARCHAR),
+        sa.Column('column%with%percents', sa.VARCHAR),
+        schema="my.schema",
+    )
+
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_1, (1, 'a', 'b', 'c', 'd')),
+                (my_table_1, (2, 'e', 'f', 'g', 'h')),
+                (my_table_1, (3, 'i', 'j', 'j', 'k')),
+            ),
+        ),
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    with engine.connect() as conn:
+        # view referencing columns with dots
+        conn.execute(sa.text(f'''
+            CREATE VIEW "my.schema"."view.with.dots_{table_name}" AS
+            SELECT "normal_id", "column.with.dots"
+            FROM "my.schema"."{table_name}"
+            WHERE "normal_id" > 1
+        '''))
+
+        # view with spaces referencing columns with spaces
+        conn.execute(sa.text(f'''
+            CREATE VIEW "my.schema"."view with spaces_{table_name}" AS
+            SELECT "normal_id", "column with spaces"
+            FROM "my.schema"."{table_name}"
+            WHERE "normal_id" < 3
+        '''))
+
+        # view with quotes referencing columns with quotes
+        conn.execute(sa.text(f'''
+            CREATE VIEW "my.schema"."view""with""quotes_{table_name}" AS
+            SELECT "normal_id", "column""with""quotes"
+            FROM "my.schema"."{table_name}"
+            WHERE "normal_id" = 2
+        '''))
+        conn.commit()
+
+        # view with percents referencing columns with percents
+        conn.execute(sa.text(f'''
+            CREATE VIEW "my.schema"."view%with%percents_{table_name}" AS
+            SELECT "normal_id", "column%with%percents"
+            FROM "my.schema"."{table_name}"
+            WHERE "normal_id" > 2
+        '''))
+        conn.commit()
+
+    with engine.connect() as conn:
+        view1_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view.with.dots_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view2_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view with spaces_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view3_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view""with""quotes_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view4_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view%with%percents_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+
+        assert view1_results == [(2, 'e'), (3, 'i')]
+        assert view2_results == [(1, 'b'), (2, 'f')]
+        assert view3_results == [(2, 'g')]
+        assert view4_results == [(3, 'k')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("normal_id", sa.INTEGER, primary_key=True),
+        sa.Column("column.with.dots", sa.VARCHAR),
+        sa.Column("column with spaces", sa.VARCHAR),
+        sa.Column('column"with"quotes', sa.VARCHAR),
+        sa.Column('column%with%percents', sa.VARCHAR),
+        sa.Column("new.column%with""spaces.and.dots", sa.VARCHAR),
+        schema="my.schema",
+    )
+
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table_2, (4, 'l', 'm', 'n', 'o', 'p')),
+            ),
+        ),
+    )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+        view1_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view.with.dots_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view2_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view with spaces_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view3_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view""with""quotes_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+        view4_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view%with%percents_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
+
+        assert view1_results == [(2, 'e'), (3, 'i'), (4, 'l')]
+        assert view2_results == [(1, 'b'), (2, 'f')]
+        assert view3_results == [(2, 'g')]
+        assert view4_results == [(3, 'k'), (4, 'o')]
