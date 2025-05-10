@@ -96,51 +96,88 @@ def ingest(
 
     def get_dependent_views(sql: typing.Any, conn: typing.Any, schema: str, table: str) -> typing.List[typing.Dict[str, str]]:
         query = sql.SQL('''
+            -- A view is a row in pg_rewrite, and a corresponding set of rows in pg_depend where:
+            --
+            -- 1. There is a row per column that links pg_rewrite with all the columns of all the tables (or
+            --    other views) in pg_class that the view queries
+            -- 2. There is also one "internal" row linking the pg_rewrite row with its pg_class entry for the
+            --    view itself. This is can be used to then find the views that query the view, the fully
+            --    qualified name of the view, as well as its definition.
+            --
+            -- So to find all the direct views for a table, we find the rows in pg_depend for 1., and then self
+            -- join onto pg_depend again for 2. (making sure to not choose the same rows again). To then find
+            -- all the indirect views, we do the same thing repeatedly using a recursive CTE.
+            --
+            -- PostgreSQL does not forbid cycles of views, so we have to make sure we never add a view that has
+            -- already been added.
+
+            -- Non recursive term: direct views on the table
             WITH RECURSIVE view_deps AS (
-                -- base case: direct dependencies
-                SELECT DISTINCT
-                    v.schemaname AS view_schema,
-                    v.viewname AS view_name,
-                    format('CREATE OR REPLACE VIEW %I.%I AS %s',
-                           v.schemaname, v.viewname, pg_get_viewdef(c.oid, true)
-                    ) AS view_definition,
-                    1 as level,
-                    ARRAY[v.viewname::text] as path
-                FROM pg_depend d
-                JOIN pg_rewrite r ON r.oid = d.objid
-                JOIN pg_class c ON c.oid = r.ev_class
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_views v ON v.schemaname = n.nspname AND v.viewname = c.relname
-                WHERE d.refobjid = (quote_ident({schema}) || '.' || quote_ident({table}))::regclass::oid
-                AND c.relkind = 'v'
-
-                UNION ALL
-
-                -- recursive case: views depending on views
                 SELECT
-                    v.schemaname,
-                    v.viewname,
-                    format('CREATE OR REPLACE VIEW %I.%I AS %s',
-                           v.schemaname, v.viewname, pg_get_viewdef(c.oid, true)
-                    ),
-                    vd.level + 1,
-                    vd.path || v.viewname::text
-                FROM view_deps vd
-                JOIN pg_depend d ON d.refobjid = (quote_ident(vd.view_schema) || '.' || quote_ident(vd.view_name))::regclass::oid
-                JOIN pg_rewrite r ON r.oid = d.objid
-                JOIN pg_class c ON c.oid = r.ev_class
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_views v ON v.schemaname = n.nspname AND v.viewname = c.relname
-                WHERE NOT v.viewname = ANY(vd.path)
-                AND c.relkind = 'v'
+                    view_depend.refobjid, array[view_depend.refobjid] as path
+                FROM
+                    pg_depend as view_depend, pg_depend as table_depend
+                WHERE
+                    -- Find the rows in pg_rewrite for 1: rows that link the table with the views that query it
+                    table_depend.classid = 'pg_rewrite'::regclass
+                    and table_depend.refclassid = 'pg_class'::regclass
+                    and table_depend.refobjid = format('%I.%I', {schema}, {table})::regclass
+
+                    -- And we can find 2: the pg_class entry for each of the views themselves
+                    and view_depend.classid = 'pg_rewrite'::regclass
+                    and view_depend.refclassid = 'pg_class'::regclass
+                    and view_depend.deptype = 'i'
+                    and view_depend.objid = table_depend.objid
+                    and view_depend.refobjid != table_depend.refobjid
+
+                UNION
+
+                -- Recursive term: views on the views
+                SELECT
+                    view_depend.refobjid, view_deps.path || array[view_depend.refobjid]
+                FROM
+                    view_deps, pg_depend AS view_depend, pg_depend as table_depend
+                WHERE
+                    -- Find the rows in pg_rewrite for 1: rows that link the views with other views that query it
+                    table_depend.classid = 'pg_rewrite'::regclass
+                    and table_depend.refclassid = 'pg_class'::regclass
+                    and table_depend.refobjid = view_deps.refobjid
+
+                    -- And we can find 2: the pg_class entry for each of the views themselves
+                    and view_depend.classid = 'pg_rewrite'::regclass
+                    and view_depend.refclassid = 'pg_class'::regclass
+                    and view_depend.deptype = 'i'
+                    and view_depend.objid = table_depend.objid
+                    and view_depend.refobjid != table_depend.refobjid
+
+                    -- Making sure to not get into an infinite cycle
+                    and not view_depend.refobjid = ANY(view_deps.path)
             )
-            SELECT DISTINCT ON (view_name)
-                view_schema,
-                view_name,
-                view_definition,
-                level
-            FROM view_deps
-            ORDER BY view_name, level DESC;
+
+            -- We now get all the information in order to drop and re-create the views. Note that we don't care
+            -- about any sort of ordering because:
+            -- 1. We will drop using DROP IF EXISTS ... CASCADE
+            -- 2. We will create by first creating "dummy" views with the right columns and datatypes on all the
+            --    the views, and then replace them all with the correct definitions. This is the only way to
+            --    re-create cycles of views. These are admittedly not usable, but done on principle to leave
+            --    things as we found them, say for someone to then find out what queries the views use to then
+            --    manually fix the cycles. Note that even if we don't care about cycles or we had some
+            --    mechanism to forbid them, views on a table can be repeated at different levels in its
+            --    dependency graph, so this technique also allows us to not care about the order these are
+            --    created in
+            SELECT
+                view_deps.refobjid::regclass::text AS fully_qualified_name,
+                sum(1) AS num_columns,
+                string_agg(quote_ident(pg_attribute.attname) || ' ' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod), ', ' ORDER BY attnum) AS column_definitions,
+                pg_get_viewdef(view_deps.refobjid) AS query
+            FROM
+                view_deps
+            INNER JOIN
+                pg_attribute
+            ON
+                pg_attribute.attrelid = view_deps.refobjid
+            GROUP BY
+                view_deps.refobjid
         ''').format(
             schema=sql.Literal(schema),
             table=sql.Literal(table)
@@ -148,16 +185,16 @@ def ingest(
 
         results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
 
-        # sort by level to ensure proper dependency order
-        sorted_results = sorted(results, key=lambda x: x[3], reverse=True)
-
-        return [
-            { 'schema': row[0], 'name': row[1], 'definition': row[2] }
-            for row in sorted_results
-        ]
+        return [{
+            'schema': name.split('.')[0].strip('"'),
+            'name': name.split('.')[1].strip('"'),
+            'columns': column_defs,
+            'definition': f'CREATE OR REPLACE VIEW {name} AS {definition}'
+        } for name, num_cols, column_defs, definition in results]
 
     def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
+            logger.info("Dropping VIEW %s.%s", view['schema'], view['name'])
             query = sql.SQL('''
                 DROP VIEW IF EXISTS {schema}.{view} CASCADE
             ''').format(
@@ -167,10 +204,29 @@ def ingest(
             conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
 
     def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
-        # recreate in reverse order since we got them in dependency order
-        for view in reversed(views):
+        for view in views:
+            logger.info("Recreating dummy view %s.%s", view['schema'], view['name'])
+            column_names = [col.split()[0] for col in view['columns'].split(', ')]
+            column_types = [col.split(' ', 1)[1] for col in view['columns'].split(', ')]
+            dummy_query = sql.SQL('''
+                CREATE VIEW {schema}.{view} ({columns}) AS
+                SELECT {null_columns} FROM (SELECT 1) AS t LIMIT 0
+            ''').format(
+                schema=sql.Identifier(view['schema']),
+                view=sql.Identifier(view['name']),
+                columns=sql.SQL(', ').join(sql.Identifier(name) for name in column_names),
+                null_columns=sql.SQL(', ').join(
+                    sql.SQL('NULL::{}').format(sql.SQL(type_))
+                    for type_ in column_types
+                )
+            )
+            conn.execute(sa.text(dummy_query.as_string(conn.connection.driver_connection)))
+            conn.commit()
+
+        for view in views:
+            logger.info("Recreating original view %s.%s", view['schema'], view['name'])
             conn.execute(sa.text(view['definition']))
-            conn.commit()  # commit each view creation to ensure dependencies are available
+            conn.commit()
 
     def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False
@@ -553,7 +609,6 @@ def ingest(
             if ingest_table is not target_table:
                 with get_pg_force_execute(conn, logger):
                     dependent_views = get_dependent_views(sql, conn, target_table.schema, target_table.name)
-                    logger.info("Dropping dependent views for %s.%s", str(target_table.schema), str(target_table.name))
                     drop_views(sql, conn, dependent_views)
                     target_table.drop(conn)
                     rename_query = sql.SQL('''
@@ -565,7 +620,6 @@ def ingest(
                         target_table=sql.Identifier(target_table.name),
                     )
                     conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
-                    logger.info("Recreating dependent views for %s.%s", str(target_table.schema), str(target_table.name))
                     recreate_views(sql, conn, dependent_views)
 
         if callable(high_watermark_value):
