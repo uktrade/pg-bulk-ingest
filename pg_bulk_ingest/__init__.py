@@ -50,16 +50,16 @@ class Visibility:
 
 
 def ingest(
-        conn:typing.Any, metadata:typing.Any, batches:typing.Any, high_watermark:str=HighWatermark.LATEST,
-        visibility:str=Visibility.AFTER_EACH_BATCH, upsert:str=Upsert.IF_PRIMARY_KEY, delete:str=Delete.OFF,
-        get_pg_force_execute:typing.Any=lambda conn, logger: pg_force_execute(conn, logger=logger),
-        on_before_visible:typing.Any=lambda conn, ingest_table, batch_metadata: None, logger: logging.Logger=logging.getLogger("pg_bulk_ingest"),
-        max_rows_per_table_buffer:int=10000,
+    conn:typing.Any, metadata:typing.Any, batches:typing.Any, high_watermark:str=HighWatermark.LATEST,
+    visibility:str=Visibility.AFTER_EACH_BATCH, upsert:str=Upsert.IF_PRIMARY_KEY, delete:str=Delete.OFF,
+    get_pg_force_execute:typing.Any=lambda conn, logger: pg_force_execute(conn, logger=logger),
+    on_before_visible:typing.Any=lambda conn, ingest_table, batch_metadata: None, logger: logging.Logger=logging.getLogger("pg_bulk_ingest"),
+    max_rows_per_table_buffer:int=10000,
 ) -> None:
 
     def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
-    
+
     def sql_and_copy_from_stdin(driver: str) -> typing.Tuple[typing.Any, typing.Callable[[typing.Any, typing.Any, typing.Any], None]]:
         # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
         # COPY ... FROM STDIN API via write_row that handles escaping,
@@ -94,6 +94,84 @@ def ingest(
             comment=sql.Literal(comment),
         ).as_string(conn.connection.driver_connection)))
 
+    def get_dependent_views(sql: typing.Any, conn: typing.Any, schema: str, table: str) -> typing.List[typing.Dict[str, str]]:
+        query = sql.SQL('''
+            WITH RECURSIVE view_deps AS (
+                -- base case: direct dependencies
+                SELECT DISTINCT
+                    v.schemaname AS view_schema,
+                    v.viewname AS view_name,
+                    format('CREATE OR REPLACE VIEW %I.%I AS %s',
+                           v.schemaname, v.viewname, pg_get_viewdef(c.oid, true)
+                    ) AS view_definition,
+                    1 as level,
+                    ARRAY[v.viewname::text] as path
+                FROM pg_depend d
+                JOIN pg_rewrite r ON r.oid = d.objid
+                JOIN pg_class c ON c.oid = r.ev_class
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_views v ON v.schemaname = n.nspname AND v.viewname = c.relname
+                WHERE d.refobjid = (quote_ident({schema}) || '.' || quote_ident({table}))::regclass::oid
+                AND c.relkind = 'v'
+
+                UNION ALL
+
+                -- recursive case: views depending on views
+                SELECT
+                    v.schemaname,
+                    v.viewname,
+                    format('CREATE OR REPLACE VIEW %I.%I AS %s',
+                           v.schemaname, v.viewname, pg_get_viewdef(c.oid, true)
+                    ),
+                    vd.level + 1,
+                    vd.path || v.viewname::text
+                FROM view_deps vd
+                JOIN pg_depend d ON d.refobjid = (quote_ident(vd.view_schema) || '.' || quote_ident(vd.view_name))::regclass::oid
+                JOIN pg_rewrite r ON r.oid = d.objid
+                JOIN pg_class c ON c.oid = r.ev_class
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_views v ON v.schemaname = n.nspname AND v.viewname = c.relname
+                WHERE NOT v.viewname = ANY(vd.path)
+                AND c.relkind = 'v'
+            )
+            SELECT DISTINCT ON (view_name)
+                view_schema,
+                view_name,
+                view_definition,
+                level
+            FROM view_deps
+            ORDER BY view_name, level DESC;
+        ''').format(
+            schema=sql.Literal(schema),
+            table=sql.Literal(table)
+        )
+
+        results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
+
+        # sort by level to ensure proper dependency order
+        sorted_results = sorted(results, key=lambda x: x[3], reverse=True)
+
+        return [
+            { 'schema': row[0], 'name': row[1], 'definition': row[2] }
+            for row in sorted_results
+        ]
+
+    def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
+        for view in views:
+            query = sql.SQL('''
+                DROP VIEW IF EXISTS {schema}.{view} CASCADE
+            ''').format(
+                schema=sql.Identifier(view['schema']),
+                view=sql.Identifier(view['name'])
+            )
+            conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
+
+    def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
+        # recreate in reverse order since we got them in dependency order
+        for view in reversed(views):
+            conn.execute(sa.text(view['definition']))
+            conn.commit()  # commit each view creation to ensure dependencies are available
+
     def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False
 
@@ -106,8 +184,6 @@ def ingest(
             for column in live_table.columns.values():
                 column.server_default = None
             logger.info('Existing columns of %s.%s are %s', str(target_table.schema), str(target_table.name), list(live_table.columns))
-
-            live_table_column_names = set(live_table.columns.keys())
 
             # postgresql_include should be ignored if empty, but it seems to "sometimes" appear
             # both in reflected tables, and when
@@ -141,7 +217,7 @@ def ingest(
             columns_live = tuple(
                 (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in live_table.columns.values()
             )
-            
+
             must_create_ingest_table = indexes_target_repr != indexes_live_repr or columns_target != columns_live
 
         if not must_create_ingest_table:
@@ -176,7 +252,7 @@ def ingest(
             while current_queue:
                 table, row = current_queue.popleft()
                 ingested_tables.add(table)
-                yield table, row 
+                yield table, row
 
             while True:
                 try:
@@ -299,7 +375,7 @@ def ingest(
             schema = sa.schema.CreateSchema(target_table.schema)
             conn.execute(schema)
         initial_table_metadata = sa.MetaData()
-        initial_table = sa.Table(
+        sa.Table(
             target_table.name,
             initial_table_metadata,
             *(
@@ -476,6 +552,10 @@ def ingest(
         for target_table, ingest_table in batch_ingest_tables.items():
             if ingest_table is not target_table:
                 with get_pg_force_execute(conn, logger):
+                    dependent_views = get_dependent_views(sql, conn, target_table.schema, target_table.name)
+                    if dependent_views:
+                        logger.info("Dropping dependent views for %s.%s", str(target_table.schema), str(target_table.name))
+                        drop_views(sql, conn, dependent_views)
                     target_table.drop(conn)
                     rename_query = sql.SQL('''
                         ALTER TABLE {schema}.{ingest_table}
@@ -486,6 +566,9 @@ def ingest(
                         target_table=sql.Identifier(target_table.name),
                     )
                     conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
+                    if dependent_views:
+                        logger.info("Recreating dependent views for %s.%s", str(target_table.schema), str(target_table.name))
+                        recreate_views(sql, conn, dependent_views)
 
         if callable(high_watermark_value):
             high_watermark_value = high_watermark_value()
