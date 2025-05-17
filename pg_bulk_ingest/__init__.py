@@ -211,7 +211,7 @@ def ingest(
                 'fully_qualified_name': fully_qualified_name,
                 'column_names': ', '.join(unique_column_names),
                 'null_typed_columns': ', '.join(unique_null_typed_columns),
-                'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}',
+                'definition': f'CREATE VIEW {fully_qualified_name} AS {definition}',
                 'is_materialized': is_materialized,
                 'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}'
             })
