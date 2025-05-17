@@ -243,7 +243,6 @@ def ingest(
                     null_columns=sql.SQL(view['null_typed_columns'])
                 )
                 conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
-                conn.commit()
 
         for view in views:
             if view["is_materialized"]:
@@ -252,7 +251,6 @@ def ingest(
             else:
                 logger.info("Recreating original view %s", view['fully_qualified_name'])
                 conn.execute(sa.text(view['definition']))
-            conn.commit()
 
     def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False
