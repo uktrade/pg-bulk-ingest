@@ -1105,19 +1105,9 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
                  GRANT CONNECT ON DATABASE postgres TO {user_id};
             ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
             conn.execute(sa.text(sql.SQL('''
-                 GRANT USAGE ON SCHEMA my_schema TO {user_id};
-            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
-            conn.commit()
-            conn.execute(sa.text(sql.SQL('''
                  GRANT SELECT ON my_schema.{table} TO {user_id};
             ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
             conn.commit()
-
-    for user_engine in user_engines:
-        with user_engine.connect() as conn:
-            results = conn.execute(sa.select(my_table_1).order_by('id')).fetchall()
-
-        assert results == [(1, 'a', 'b')]
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -1135,6 +1125,18 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
 
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
+
+    # Granting USAGE after the ingest makes sure that we don't re-create permissions only for
+    # users that also had USAGE at the time of ingest, which is a risk if under the hood ingest
+    # uses information_schema.role_table_grants to determine which users have SELECT permission.
+    # The fact that information_schema.role_table_grants only returns permissions for users that
+    # also have USAGE on each table's schema doesn't appear to be documented
+    with engine.connect() as conn:
+        for user_id in user_ids:
+            conn.execute(sa.text(sql.SQL('''
+                 GRANT USAGE ON SCHEMA my_schema TO {user_id};
+            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            conn.commit()
 
     for user_engine in user_engines:
         with user_engine.connect() as conn:
