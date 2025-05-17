@@ -1,6 +1,7 @@
 import uuid
 import os
 import sys
+import threading
 from contextlib import contextmanager
 from datetime import date
 
@@ -1671,6 +1672,131 @@ def test_ingest_with_dependent_views() -> None:
             SELECT * FROM my_schema.{view_name} ORDER BY id
         ''')).fetchall()
         assert view_results == [(2, 'b'), (3, 'c')]
+
+
+def test_ingest_with_multiple_views_all_visible_together() -> None:
+    '''Checks that all views on a table show consistent data, i.e. there are almost definitely
+    no intermediate commits in the production code
+
+    It's a done a brute-force way: firing up 200 threads that repeatedly query views on the table
+    being ingested into, where each checks:
+
+    - That the views exist, i.e. they have not caught a moment between dropping and recreating
+      views (if they don't exist an exception will be raised)
+    - They they have consistent data, i.e. they have not caugh a moment between when they are
+      created with only the right columns but no rows
+
+    Ideally this wouldn't be brute-force, because it could theoretically pass just by chance, but
+    not sure how to do that without resorting to mocking/other assumptions on the internals. With
+    200 threads however, it should be very unlikely that this happens. As evidence of this: while
+    this was developed, if commits were added to the production code, several _hundred_ checks 
+    would fail. While there would be some variation between test runs, this to reduce to zero by
+    chance would be extremely unlikely
+    '''
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/',
+        poolclass=sa.pool.NullPool, **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    view_name_1 = f"my_test_view_1_{table_name}"
+    view_name_2 = f"my_test_view_2_{table_name}"
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name_1} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name_2} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.commit()
+
+    any_inconsistent = False
+    any_exception = None
+
+    def check_view():
+        nonlocal any_inconsistent
+        nonlocal any_exception
+        nonlocal total_queries
+
+        try:
+            with engine.connect() as conn:
+                while not done.is_set():
+                    view_results = conn.execute(sa.text(f'''
+                        SELECT * FROM my_schema.{view_name_1}
+                        UNION ALL
+                        SELECT * FROM my_schema.{view_name_2}
+                        ORDER BY id
+                    ''')).fetchall()
+                    conn.commit()
+                    with lock:
+                        any_inconsistent = any_inconsistent or (
+                            view_results != [(2, 'b'),(2, 'b'),] \
+                            and view_results != [(2, 'b'),(2, 'b'),(3, 'c'),(3, 'c'),]
+                        )
+                        total_queries += 1
+                        cv.notify()
+        except Exception as e:
+            with lock:
+                any_exception = any_exception or e
+
+    total_queries = 0
+    lock = threading.Lock()
+    done = threading.Event()
+    cv = threading.Condition(lock)
+    threads = [
+        threading.Thread(target=check_view)
+        for _ in range(0, 200)
+    ]
+    for t in threads:
+        t.start()
+
+    try:
+        # Waiting for the threads having queried a number of times makes it more likely they are not
+        # at the same place in their loop, and so more likely at least one will catch an error
+        with lock:
+            cv.wait_for(lambda: total_queries > 1000)
+
+        metadata_2 = sa.MetaData()
+        my_table_2 = sa.Table(
+            table_name,
+            metadata_2,
+            sa.Column("id", sa.INTEGER, primary_key=True),
+            sa.Column("value_1", sa.VARCHAR),
+            sa.Column("value_2", sa.VARCHAR),
+            schema="my_schema",
+        )
+
+        def batches_2(_):
+            yield None, None, (
+                (my_table_2, (3, 'c', 'd')),
+            )
+        with engine.connect() as conn:
+            ingest(conn, metadata_2, batches_2)
+
+    finally:
+        done.set()
+        for t in threads:
+            t.join()
+
+    assert not any_inconsistent
+    assert any_exception is None
 
 
 def test_ingest_with_multiple_dependent_views() -> None:
