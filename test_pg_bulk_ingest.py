@@ -2407,6 +2407,62 @@ def test_ingest_with_chain_of_materialized_views() -> None:
     assert results == [(5, 50, 'd')]
 
 
+def test_ingest_with_materialized_view_at_multiple_levels() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+    table_name = "table_" + uuid.uuid4().hex
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        table_name,
+        metadata,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.INTEGER),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_1(_):
+        yield None, None, (
+            (my_table, (1, 10, 'a')),
+            (my_table, (2, 20, 'b')),
+            (my_table, (3, 30, 'b')),
+            (my_table, (4, 40, 'c')),
+        )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE MATERIALIZED VIEW my_schema.{table_name}_1 AS
+            SELECT *
+            FROM my_schema.{table_name}
+        '''))
+        conn.execute(sa.text(f'''
+            CREATE MATERIALIZED VIEW my_schema.{table_name}_2 AS
+            SELECT * FROM my_schema.{table_name}
+            UNION ALL
+            SELECT * FROM my_schema.{table_name}_1
+        '''))
+        conn.commit()
+
+    def batches_2(_):
+        yield None, None, (
+            (my_table, (5, 50, 'd')),
+        )
+
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_2, delete=Delete.BEFORE_FIRST_BATCH)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{table_name}_2
+            ORDER BY id
+        ''')).fetchall()
+
+    assert results == [(5, 50, 'd'), (5, 50, 'd')]
+
+
 def test_ingest_with_views_and_wacky_identifiers() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
