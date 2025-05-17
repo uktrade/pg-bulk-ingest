@@ -172,6 +172,9 @@ def ingest(
             --    mechanism to forbid them, views on a table can be repeated at different levels in its
             --    dependency graph, so this technique also allows us to not care about the order these are
             --    created in
+            --
+            -- We also avoid more CTEs to allow older PostgreSQl to better optimise the following,
+            -- but at the cost of lower clarity due to having tables defined inline
             SELECT
                 refobjid::regclass::text AS fully_qualified_name,
                 column_names,
@@ -181,21 +184,28 @@ def ingest(
                 (SELECT string_agg(grantee::regrole::text, ',') FROM aclexplode(c.relacl) WHERE privilege_type = 'SELECT') AS quoted_grantees
             FROM (
                 SELECT
-                    view_deps.refobjid,
-                    max(array_length(view_deps.path, 1)) AS max_path_length,
+                    view_deps_dedup.refobjid,
+                    max_path_length,
                     string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY pg_attribute.attnum) as column_names,
                     string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod),
                               ', ' ORDER BY pg_attribute.attnum) as null_typed_columns
-                FROM
-                    view_deps
+                FROM (
+                    SELECT DISTINCT ON (refobjid)
+                        view_deps.refobjid,
+                        array_length(view_deps.path, 1) AS max_path_length
+                    FROM
+                        view_deps
+                    ORDER BY
+                        1, 2 DESC
+                ) AS view_deps_dedup
                 INNER JOIN
                     pg_attribute
                 ON
-                    pg_attribute.attrelid = view_deps.refobjid
+                    pg_attribute.attrelid = view_deps_dedup.refobjid
                 WHERE
                     pg_attribute.attnum > 0 AND NOT pg_attribute.attisdropped
                 GROUP BY
-                    view_deps.refobjid
+                    1, 2
             ) AS view_deps_columns_and_max_path_length
             INNER JOIN
                 pg_class c ON c.oid = refobjid
@@ -212,32 +222,18 @@ def ingest(
         )
 
         results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
-
-        views = []
-        for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized, quoted_grantees in results:
-            column_names_list = [name.strip() for name in column_names.split(',')]
-            null_typed_columns_list = [col.strip() for col in null_typed_columns.split(',')]
-
-            seen_names = set()
-            unique_pairs = []
-            for name, null_typed in zip(column_names_list, null_typed_columns_list):
-                if name not in seen_names:
-                    seen_names.add(name)
-                    unique_pairs.append((name, null_typed))
-
-            unique_column_names, unique_null_typed_columns = zip(*unique_pairs) if unique_pairs else ([], [])
-
-            views.append({
+        return [
+            {
                 'fully_qualified_name': fully_qualified_name,
-                'column_names': ', '.join(unique_column_names),
-                'null_typed_columns': ', '.join(unique_null_typed_columns),
+                'column_names': column_names,
+                'null_typed_columns': null_typed_columns,
                 'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}',
                 'is_materialized': is_materialized,
                 'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}',
                 'quoted_grantees': quoted_grantees
-            })
-
-        return views
+            }
+            for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized, quoted_grantees in results
+        ]
 
     def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
@@ -271,6 +267,7 @@ def ingest(
                 conn.execute(sa.text(view['materialized_definition']))
             else:
                 logger.info("Recreating original view %s", view['fully_qualified_name'])
+                logger.info(view['definition'])
                 conn.execute(sa.text(view['definition']))
 
             if view['quoted_grantees']:

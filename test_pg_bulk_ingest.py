@@ -2493,14 +2493,15 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
         sa.Column("column with spaces", sa.VARCHAR),
         sa.Column('column"with"quotes', sa.VARCHAR),
         sa.Column('column%with%percents', sa.VARCHAR),
+        sa.Column('column,with,commas', sa.VARCHAR),
         schema="my.schema",
     )
 
     def batches_1(_):
         yield None, None, (
-            (my_table_1, (1, 'a', 'b', 'c', 'd')),
-            (my_table_1, (2, 'e', 'f', 'g', 'h')),
-            (my_table_1, (3, 'i', 'j', 'j', 'k')),
+            (my_table_1, (1, 'a', 'b', 'c', 'd', 'x')),
+            (my_table_1, (2, 'e', 'f', 'g', 'h', 'x')),
+            (my_table_1, (3, 'i', 'j', 'j', 'k', 'x')),
         )
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
@@ -2540,6 +2541,15 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
         '''))
         conn.commit()
 
+        # view with commas referencing columns with commas
+        conn.execute(sa.text(f'''
+            CREATE VIEW "my.schema"."view,with,commas_{table_name}" AS
+            SELECT "normal_id", "column,with,commas"
+            FROM "my.schema"."{table_name}"
+            WHERE "normal_id" > 2
+        '''))
+        conn.commit()
+
     with engine.connect() as conn:
         view1_results = conn.execute(sa.text(f'''
             SELECT * FROM "my.schema"."view.with.dots_{table_name}"
@@ -2557,11 +2567,16 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
             SELECT * FROM "my.schema"."view%with%percents_{table_name}"
             ORDER BY "normal_id"
         ''')).fetchall()
+        view5_results = conn.execute(sa.text(f'''
+            SELECT * FROM "my.schema"."view,with,commas_{table_name}"
+            ORDER BY "normal_id"
+        ''')).fetchall()
 
         assert view1_results == [(2, 'e'), (3, 'i')]
         assert view2_results == [(1, 'b'), (2, 'f')]
         assert view3_results == [(2, 'g')]
         assert view4_results == [(3, 'k')]
+        assert view5_results == [(3, 'x')]
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -2572,13 +2587,14 @@ def test_ingest_with_views_and_wacky_identifiers() -> None:
         sa.Column("column with spaces", sa.VARCHAR),
         sa.Column('column"with"quotes', sa.VARCHAR),
         sa.Column('column%with%percents', sa.VARCHAR),
+        sa.Column('column,with,commas', sa.VARCHAR),
         sa.Column("new.column%with""spaces.and.dots", sa.VARCHAR),
         schema="my.schema",
     )
 
     def batches_2(_):
         yield None, None, (
-            (my_table_2, (4, 'l', 'm', 'n', 'o', 'p')),
+            (my_table_2, (4, 'l', 'm', 'n', 'o', 'p', 'x')),
         )
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches_2)
