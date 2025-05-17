@@ -173,31 +173,39 @@ def ingest(
             --    dependency graph, so this technique also allows us to not care about the order these are
             --    created in
             SELECT
-                view_deps.refobjid::regclass::text AS fully_qualified_name,
-                string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY pg_attribute.attnum) as column_names,
-                string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod),
-                          ', ' ORDER BY pg_attribute.attnum) as null_typed_columns,
-                pg_get_viewdef(view_deps.refobjid) AS query,
-                c.relkind = 'm' as is_materialized
-            FROM
-                view_deps
+                refobjid::regclass::text AS fully_qualified_name,
+                column_names,
+                null_typed_columns,
+                pg_get_viewdef(refobjid) AS query,
+                c.relkind = 'm' as is_materialized,
+                (SELECT string_agg(grantee::regrole::text, ',') FROM aclexplode(c.relacl) WHERE privilege_type = 'SELECT') AS quoted_grantees
+            FROM (
+                SELECT
+                    view_deps.refobjid,
+                    max(array_length(view_deps.path, 1)) AS max_path_length,
+                    string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY pg_attribute.attnum) as column_names,
+                    string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod),
+                              ', ' ORDER BY pg_attribute.attnum) as null_typed_columns
+                FROM
+                    view_deps
+                INNER JOIN
+                    pg_attribute
+                ON
+                    pg_attribute.attrelid = view_deps.refobjid
+                WHERE
+                    pg_attribute.attnum > 0 AND NOT pg_attribute.attisdropped
+                GROUP BY
+                    view_deps.refobjid
+            ) AS view_deps_columns_and_max_path_length
             INNER JOIN
-                pg_attribute
-            ON
-                pg_attribute.attrelid = view_deps.refobjid
-            INNER JOIN
-                pg_class c
-            ON
-                c.oid = view_deps.refobjid
-            WHERE
-                pg_attribute.attnum > 0 AND NOT pg_attribute.attisdropped
-            GROUP BY
-                view_deps.refobjid, c.relkind
+                pg_class c ON c.oid = refobjid
             ORDER BY
                 -- The _max_ here is for when a materialized view appears in mutiple places in the
                 -- dependency graph, making sure that we put such views _after_ all of their
                 -- upstream dependencies
-                max(array_length(view_deps.path, 1))
+                max_path_length,
+                -- For consistency
+                refobjid
         ''').format(
             schema=sql.Literal(schema),
             table=sql.Literal(table)
@@ -206,7 +214,7 @@ def ingest(
         results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
 
         views = []
-        for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized in results:
+        for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized, quoted_grantees in results:
             column_names_list = [name.strip() for name in column_names.split(',')]
             null_typed_columns_list = [col.strip() for col in null_typed_columns.split(',')]
 
@@ -225,7 +233,8 @@ def ingest(
                 'null_typed_columns': ', '.join(unique_null_typed_columns),
                 'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}',
                 'is_materialized': is_materialized,
-                'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}'
+                'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}',
+                'quoted_grantees': quoted_grantees
             })
 
         return views
@@ -263,6 +272,16 @@ def ingest(
             else:
                 logger.info("Recreating original view %s", view['fully_qualified_name'])
                 conn.execute(sa.text(view['definition']))
+
+            if view['quoted_grantees']:
+                logger.info('Granting SELECT on %s to %s', view['fully_qualified_name'], view['quoted_grantees'])
+                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
+                    .format(
+                        schema_table=sql.SQL(view['fully_qualified_name']),
+                        users=sql.SQL(view['quoted_grantees']),
+                    )
+                    .as_string(conn.connection.driver_connection))
+                )
 
     def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False

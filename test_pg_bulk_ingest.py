@@ -1090,6 +1090,14 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
+    view_name = "my_view_" + uuid.uuid4().hex
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name} AS
+            SELECT * FROM my_schema.{my_table_1.name}
+        '''))
+        conn.commit()
+
     user_ids = [uuid.uuid4().hex[:16], uuid.uuid4().hex[:16]]
     user_engines = [
         sa.create_engine(f'{engine_type}://{user_id}:password@127.0.0.1:5432/postgres', **engine_future)
@@ -1107,6 +1115,9 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
             conn.execute(sa.text(sql.SQL('''
                  GRANT SELECT ON my_schema.{table} TO {user_id};
             ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            conn.execute(sa.text(sql.SQL('''
+                 GRANT SELECT ON my_schema.{view} TO {user_id};
+            ''').format(view=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
             conn.commit()
 
     metadata_2 = sa.MetaData()
@@ -1141,8 +1152,12 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
     for user_engine in user_engines:
         with user_engine.connect() as conn:
             results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
+            view_results = conn.execute(sa.text(f'''
+                SELECT * FROM my_schema.{view_name} ORDER BY id
+            ''')).fetchall()
 
         assert results == [(1, 'a', None, 'b')]
+        assert view_results == [(1, 'a', 'b')]
 
 
 def test_migrate_add_column_not_at_end_no_data() -> None:
