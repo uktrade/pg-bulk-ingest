@@ -615,11 +615,10 @@ def ingest(
             if ingest_table is not target_table:
                 logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
                 grantees = conn.execute(sa.text(sql.SQL('''
-                    SELECT grantee
-                    FROM information_schema.role_table_grants
-                    WHERE table_schema = {schema} AND table_name = {table}
-                    AND privilege_type = 'SELECT'
-                    AND grantor != grantee
+                    SELECT acl.grantee::regrole AS quoted_grantee
+                    FROM pg_class c, aclexplode(relacl) acl
+                    WHERE c.oid = (quote_ident({schema}) || '.' || quote_ident({table}))::regclass
+                    AND acl.privilege_type = 'SELECT'
                 ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
                     .as_string(conn.connection.driver_connection)
                 )).fetchall()
@@ -628,7 +627,7 @@ def ingest(
                         .format(
                             schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
                             users=sql.SQL(',').join(
-                                sql.Identifier(grantee[0])
+                                sql.SQL(grantee.quoted_grantee)
                                 for grantee in grantees
                             ),
                         )
