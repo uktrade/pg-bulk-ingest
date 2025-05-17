@@ -221,61 +221,52 @@ def ingest(
             table=sql.Literal(table)
         )
 
-        results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
-        return [
-            {
-                'fully_qualified_name': fully_qualified_name,
-                'column_names': column_names,
-                'null_typed_columns': null_typed_columns,
-                'definition': f'CREATE OR REPLACE VIEW {fully_qualified_name} AS {definition}',
-                'is_materialized': is_materialized,
-                'materialized_definition': f'CREATE MATERIALIZED VIEW {fully_qualified_name} AS {definition}',
-                'quoted_grantees': quoted_grantees
-            }
-            for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized, quoted_grantees in results
-        ]
+        return conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
 
     def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            view_type = "MATERIALIZED VIEW" if view["is_materialized"] else "VIEW"
-            logger.info("Dropping %s %s", view_type, view["fully_qualified_name"])
+            view_type = "MATERIALIZED VIEW" if view.is_materialized else "VIEW"
+            logger.info("Dropping %s %s", view_type, view.fully_qualified_name)
             query = sql.SQL('''
                 DROP {view_type} IF EXISTS {fully_qualified_name} CASCADE
             ''').format(
                 view_type=sql.SQL(view_type),
-                fully_qualified_name=sql.SQL(view["fully_qualified_name"])
+                fully_qualified_name=sql.SQL(view.fully_qualified_name)
             )
             conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
 
     def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
-            if not view["is_materialized"]:
-                logger.info("Recreating dummy view %s", view['fully_qualified_name'])
+            if not view.is_materialized:
+                logger.info("Recreating dummy view %s", view.fully_qualified_name)
                 query = sql.SQL('''
                     CREATE VIEW {fully_qualified_name} ({columns}) AS
                     SELECT {null_columns} FROM (SELECT 1) AS t LIMIT 0
                 ''').format(
-                    fully_qualified_name=sql.SQL(view['fully_qualified_name']),
-                    columns=sql.SQL(view['column_names']),
-                    null_columns=sql.SQL(view['null_typed_columns'])
+                    fully_qualified_name=sql.SQL(view.fully_qualified_name),
+                    columns=sql.SQL(view.column_names),
+                    null_columns=sql.SQL(view.null_typed_columns)
                 )
                 conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
 
         for view in views:
-            if view["is_materialized"]:
-                logger.info("Recreating original materialized view %s", view['fully_qualified_name'])
-                conn.execute(sa.text(view['materialized_definition']))
-            else:
-                logger.info("Recreating original view %s", view['fully_qualified_name'])
-                logger.info(view['definition'])
-                conn.execute(sa.text(view['definition']))
-
-            if view['quoted_grantees']:
-                logger.info('Granting SELECT on %s to %s', view['fully_qualified_name'], view['quoted_grantees'])
+            create_sql = \
+                sql.SQL('CREATE MATERIALIZED VIEW {fully_qualified_name} AS {query}') if view.is_materialized else \
+                sql.SQL('CREATE OR REPLACE VIEW {fully_qualified_name}  AS {query}')
+            logger.info("Recreating original%s view %s", ' materialized' if view.is_materialized else '', view.fully_qualified_name)
+            conn.execute(sa.text(create_sql
+                .format(
+                    fully_qualified_name=sql.SQL(view.fully_qualified_name),
+                    query=sql.SQL(view.query),
+                )
+                .as_string(conn.connection.driver_connection))
+            )
+            if view.quoted_grantees:
+                logger.info('Granting SELECT on %s to %s', view.fully_qualified_name, view.quoted_grantees)
                 conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
                     .format(
-                        schema_table=sql.SQL(view['fully_qualified_name']),
-                        users=sql.SQL(view['quoted_grantees']),
+                        schema_table=sql.SQL(view.fully_qualified_name),
+                        users=sql.SQL(view.quoted_grantees),
                     )
                     .as_string(conn.connection.driver_connection))
                 )
