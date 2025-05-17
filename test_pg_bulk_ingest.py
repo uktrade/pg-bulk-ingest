@@ -169,6 +169,45 @@ def test_unique_added() -> None:
             ingest(conn, metadata, batches)
 
 
+def test_unique_equivalence() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table_with_unique_constraint = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        sa.UniqueConstraint("integer"),
+        schema="my_schema",
+    )
+    def batches(_):
+        yield (None, None, (
+            (my_table_with_unique_constraint, (1,)),
+        ))
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    oid_1 = _get_table_oid(engine, my_table_with_unique_constraint)
+
+    metadata = sa.MetaData()
+    my_table_with_unique_col = sa.Table(
+        my_table_with_unique_constraint.name,
+        metadata,
+        sa.Column("integer", sa.INTEGER, unique=True),
+        schema="my_schema",
+    )
+    def batches(_):
+        yield (None, None, (
+            (my_table_with_unique_col, (2,)),
+        ))
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches)
+
+    oid_2 = _get_table_oid(engine, my_table_with_unique_col)
+
+    assert oid_1 == oid_2
+
+
 def test_batches() -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
