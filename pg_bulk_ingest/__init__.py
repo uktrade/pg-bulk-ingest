@@ -156,12 +156,10 @@ def ingest(
 
             -- We now get all the information in order to drop and re-create the views.
             -- 
-            -- The ordering is important only for materialized views so they are re-created in
-            -- dependency order. The correct order is the order that the materialized views are
-            -- discovered by the recursive CTE, so technically the ORDER BY clause is redundant.
-            -- But this I suspect is an implementation detail of current versions of PostgreSQL,
-            -- and not guarenteed, so an explicit ORDER BY clause is added to make sure we return
-            -- each level of the graph before the next.
+            -- The ordering is important only for materialized views so they are re-created so all
+            -- of their upstream dependencies are re-created first. This is especially important
+            -- because in the cases where the same view appears in multiple places in the
+            -- dependency graph, it is not in the order in which the recursive CTE discovers them.
             --
             -- For completeness, correct handling of non-materialized views don't depend on the
             -- ORDER BY because:
@@ -196,7 +194,10 @@ def ingest(
             GROUP BY
                 view_deps.refobjid, c.relkind
             ORDER BY
-                min(array_length(view_deps.path, 1))
+                -- The _max_ here is for when a materialized view appears in mutiple places in the
+                -- dependency graph, making sure that we put such views _after_ all of their
+                -- upstream dependencies
+                max(array_length(view_deps.path, 1))
         ''').format(
             schema=sql.Literal(schema),
             table=sql.Literal(table)
