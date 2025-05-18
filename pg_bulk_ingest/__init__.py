@@ -579,17 +579,16 @@ _VIEWS_SQL = '''
 -- join onto pg_depend again for 2. (making sure to not choose the same rows again). To then find
 -- all the indirect views, we do the same thing repeatedly using a recursive CTE.
 --
--- PostgreSQL does not forbid cycles of views, so we have to make sure we never add a view that has
--- already been added.
-
--- Non recursive term: direct views on the table
+-- PostgreSQL does not forbid cycles of views, so during the recursion we have to make sure we
+-- never add a view that has already been added.
 WITH RECURSIVE view_deps AS (
+    -- Non recursive term: direct views on the table
     SELECT
         view_depend.refobjid, array[view_depend.refobjid] as path
     FROM
         pg_depend as view_depend, pg_depend as table_depend
     WHERE
-        -- Find the rows in pg_rewrite for 1: rows that link the table with the views that query it
+        -- Find rows in pg_rewrite for 1: rows that link the table with the views that query it
         table_depend.classid = 'pg_rewrite'::regclass
         and table_depend.refclassid = 'pg_class'::regclass
         and table_depend.refobjid = format('%I.%I', {schema}, {table})::regclass
@@ -609,12 +608,12 @@ WITH RECURSIVE view_deps AS (
     FROM
         view_deps, pg_depend AS view_depend, pg_depend as table_depend
     WHERE
-        -- Find the rows in pg_rewrite for 1: rows that link the views with other views that query it
+        -- Find rows in pg_rewrite for 1: rows that link the views with other views that query it
         table_depend.classid = 'pg_rewrite'::regclass
         and table_depend.refclassid = 'pg_class'::regclass
         and table_depend.refobjid = view_deps.refobjid
 
-        -- And we can find 2: the pg_class entry for each of the views themselves
+        -- And we can find 2: the pg_class entry for each of the next level views themselves
         and view_depend.classid = 'pg_rewrite'::regclass
         and view_depend.refclassid = 'pg_class'::regclass
         and view_depend.deptype = 'i'
@@ -627,16 +626,23 @@ WITH RECURSIVE view_deps AS (
 
 -- We now get all the information in order to drop and re-create the views.
 -- 
--- The ordering is important only for materialized views so they are re-created so all
--- of their upstream dependencies are re-created first. This is especially important
--- because in the cases where the same view appears in multiple places in the
--- dependency graph, it is not in the order in which the recursive CTE discovers them.
+-- The ordering is important only for materialized views so they are re-created so all of their
+-- upstream dependencies are re-created first. This is especially important because in the cases
+-- where the same view appears in multiple places in the dependency graph, it is not in the order
+-- in which the recursive CTE discovers them.
 --
--- For completeness, correct handling of non-materialized views don't depend on the
--- ORDER BY because:
+-- The ordering is by increasing max path length (depth) for any particular view from the table in
+-- question, which ensures all its upstream views are earlier in the order. For the case of
+-- materialized views, this is very almost ordering by pg_class.oid / view_deps.refobjid, because
+-- _usually_ order of creation == order of view dependency == increasing order of oid. However,
+-- oids can wrap around (after creating several billion tables...) so to handle this case we have
+-- explicit ordering on the max path length. Unfortunately it is difficult to test this case, since
+-- I don't think it's possible to choose oids in pg_class - you get what you're given.
+--
+-- For completeness, correct handling of non-materialized views doesn't depend on order because:
 -- 1. We will drop using DROP IF EXISTS ... CASCADE
--- 2. We will create by first creating "dummy" views with the right columns and datatypes on all the
---    the views, and then replace them all with the correct definitions. This is the only way to
+-- 2. We will create them first creating them all as "dummy" views with the right columns and
+--    datatypes, and then replace them all with the correct definitions. This is the only way to
 --    re-create cycles of views. These are admittedly not usable, but done on principle to leave
 --    things as we found them, say for someone to then find out what queries the views use to then
 --    manually fix the cycles. Note that even if we don't care about cycles or we had some
@@ -644,22 +650,31 @@ WITH RECURSIVE view_deps AS (
 --    dependency graph, so this technique also allows us to not care about the order these are
 --    created in
 --
--- We also avoid more CTEs to allow older PostgreSQl to better optimise the following,
--- but at the cost of lower clarity due to having tables defined inline
+-- We also avoid more CTEs to allow older PostgreSQl to better optimise the following, but at the
+-- cost of lower clarity due to having tables defined inline
+--
+-- Older PostgreSQL also doesn't allow a shorthand GROUP BY by primary key - if we coudl do this
+-- we could join on pg_attribute and pg_class in the same SELECT statement and make the following
+-- clearer I suspect
 SELECT
     refobjid::regclass::text AS fully_qualified_name,
     column_names,
     null_typed_columns,
     pg_get_viewdef(refobjid) AS query,
     c.relkind = 'm' as is_materialized,
-    (SELECT string_agg(grantee::regrole::text, ',') FROM aclexplode(c.relacl) WHERE privilege_type = 'SELECT') AS quoted_grantees
+    (
+        SELECT string_agg(grantee::regrole::text, ',')
+        FROM aclexplode(c.relacl)
+        WHERE privilege_type = 'SELECT'
+    ) AS quoted_grantees
 FROM (
     SELECT
         view_deps_dedup.refobjid,
         max_path_length,
-        string_agg(quote_ident(pg_attribute.attname), ', ' ORDER BY pg_attribute.attnum) as column_names,
-        string_agg('NULL::' || pg_catalog.format_type(pg_attribute.atttypid, pg_attribute.atttypmod),
-                  ', ' ORDER BY pg_attribute.attnum) as null_typed_columns
+        string_agg(quote_ident(a.attname),
+                   ', ' ORDER BY a.attnum) as column_names,
+        string_agg('NULL::' || pg_catalog.format_type(a.atttypid, a.atttypmod),
+                   ', ' ORDER BY a.attnum) as null_typed_columns
     FROM (
         SELECT DISTINCT ON (refobjid)
             view_deps.refobjid,
@@ -670,20 +685,19 @@ FROM (
             1, 2 DESC
     ) AS view_deps_dedup
     INNER JOIN
-        pg_attribute
+        pg_attribute a
     ON
-        pg_attribute.attrelid = view_deps_dedup.refobjid
+        a.attrelid = view_deps_dedup.refobjid
     WHERE
-        pg_attribute.attnum > 0 AND NOT pg_attribute.attisdropped
+        a.attnum > 0 AND NOT a.attisdropped
     GROUP BY
         1, 2
 ) AS view_deps_columns_and_max_path_length
 INNER JOIN
     pg_class c ON c.oid = refobjid
 ORDER BY
-    -- The _max_ here is for when a materialized view appears in mutiple places in the
-    -- dependency graph, making sure that we put such views _after_ all of their
-    -- upstream dependencies
+    -- The _max_ here is for when a materialized view appears in mutiple places in the dependency
+    -- graph, making sure that we put such views _after_ all of their upstream dependencies
     max_path_length,
     -- For consistency
     refobjid
