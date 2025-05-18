@@ -18,6 +18,10 @@ It's an aim of pg-bulk-ingest for clients to not have to worry about internals. 
 
 - `delete=Delete.BEFORE_FIRST_BATCH` doesn't actually perform a delete. Instead, a new empty table is created that replaces the live table at the end of the first batch just as in the case of migrations.
 
-- If an intermediate table is used due to a migration or `delete=Delete.BEFORE_FIRST_BATCH`, any `SELECT` permissions are copied from the old table to the new table.
+- If an new table is created due to a migration or `delete=Delete.BEFORE_FIRST_BATCH`:
+
+   - `SELECT` permissions are copied from the old table to the new table.
+
+   - Views (including materialized views) on the old table are dropped and recreated, as well as views on those views and so on. SELECT permissions on these views are also copied from the old views to the new.
 
 - The high watermark is stored on the table as a COMMENT, JSON-encoded. For example if the most recent high watermark is the string `2014-07-31`, then the comment would be `{"pg-bulk-ingest": {"high-watermark": "2014-07-31"}}`.
