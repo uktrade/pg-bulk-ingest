@@ -664,7 +664,7 @@ SELECT
     c.relkind = 'm' as is_materialized,
     (
         SELECT string_agg(grantee::regrole::text, ',')
-        FROM aclexplode(c.relacl)
+        FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner)))
         WHERE privilege_type = 'SELECT'
     ) AS quoted_grantees
 FROM (
