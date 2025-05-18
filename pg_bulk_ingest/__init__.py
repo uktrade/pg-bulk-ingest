@@ -198,27 +198,60 @@ def ingest(
                 indexes_live_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in live_table.indexes)
                 indexes_target_repr = set(repr(index) + '--' + str(get_dialect_kwargs(index)) for index in target_table.indexes)
 
+            constraints_live_repr = set(str(c) for c in live_table.constraints)
+            constraints_target_repr = set(str(c) for c in target_table.constraints)
+
             columns_target = tuple(
-                (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in target_table.columns.values()
+                (col.name, repr(col.type), col.nullable) for col in target_table.columns.values()
             )
             columns_live = tuple(
-                (col.name, repr(col.type), col.nullable, col.primary_key, col.unique) for col in live_table.columns.values()
+                (col.name, repr(col.type), col.nullable) for col in live_table.columns.values()
             )
 
-            must_create_ingest_table = indexes_target_repr != indexes_live_repr or columns_target != columns_live
+            must_create_ingest_table = any((
+                indexes_target_repr != indexes_live_repr,
+                constraints_live_repr != constraints_target_repr,
+                columns_target != columns_live,
+            ))
 
         if not must_create_ingest_table:
             return target_table
 
         logger.info('Ingesting via new ingest table')
         ingest_metadata = sa.MetaData()
+
+        # type/constraint separation:
+        # * constraints are value restrictions beyond what the type system can handle
+        # * hence nullability is part of the type of the column
+        ingest_table_columns: typing.List[sa.Column] = []
+        for column in target_table.columns:
+            ingest_table_columns.append(
+                sa.Column(column.name, column.type, nullable=column.nullable)
+            )
+
+        ingest_table_constraints: typing.List[sa.Constraint] = []
+        for constraint in target_table.constraints:
+            constraint_class = constraint.__class__
+
+            params = {
+                key: value for key, value in constraint.__dict__.items()
+                if not key.startswith('_') and key != 'columns' and key != 'dispatch' and key != 'parent'
+            }
+
+            if hasattr(constraint, 'columns'):
+                column_names = [col.name for col in constraint.columns]
+                new_constraint = constraint_class(*column_names, **params)
+            else:
+                new_constraint = constraint_class(**params)
+
+            ingest_table_constraints.append(new_constraint)
+
+        ingest_table_definition_args = ingest_table_columns + ingest_table_constraints
+
         ingest_table = sa.Table(
             temp_relation_name(),
             ingest_metadata,
-            *(
-                sa.Column(column.name, column.type, unique=column.unique, nullable=column.nullable, primary_key=column.primary_key)
-                for column in target_table.columns
-            ),
+            *ingest_table_definition_args,
             schema=target_table.schema
         )
         ingest_metadata.create_all(conn)
@@ -362,15 +395,33 @@ def ingest(
             schema = sa.schema.CreateSchema(target_table.schema)
             conn.execute(schema)
         initial_table_metadata = sa.MetaData()
+
+        initial_table_columns: typing.List[sa.Column] = []
+        for column in target_table.columns:
+            initial_table_columns.append(
+                sa.Column(column.name, column.type, nullable=column.nullable)
+            )
+
+        initial_table_constraints: typing.List[sa.Constraint] = []
+        for constraint in target_table.constraints:
+            constraint_class = constraint.__class__
+            column_names = [col.name for col in constraint.columns]
+            params = {
+                key: value for key, value in constraint.__dict__.items()
+                if not key.startswith('_') and key != 'columns' and key != 'dispatch' and key != 'parent'
+            }
+            new_constraint = constraint_class(*column_names, **params)
+            initial_table_constraints.append(new_constraint)
+
+        initial_table_definition_args = initial_table_columns + initial_table_constraints
+
         sa.Table(
             target_table.name,
             initial_table_metadata,
-            *(
-                sa.Column(column.name, column.type, nullable=column.nullable, unique=column.unique)
-                for column in target_table.columns
-            ),
+            *initial_table_definition_args,
             schema=target_table.schema
         )
+
         initial_table_metadata.create_all(conn)
         logger.info('Target table %s created or already existed', target_table)
 
