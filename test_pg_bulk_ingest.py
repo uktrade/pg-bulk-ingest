@@ -1774,6 +1774,164 @@ def test_ingest_with_dependent_view_select_privileges_preserved_by_view_owner() 
         assert view_results == [(2, 'b'), (3, 'c')]
 
 
+def test_ingest_with_dependent_view_in_schema_owned_by_different_user() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    schema_name = "my_schema_" + uuid.uuid4().hex
+    user_id = uuid.uuid4().hex[:16]
+    user_engine = sa.create_engine(f'{engine_type}://{user_id}:password@127.0.0.1:5432/postgres', **engine_future)
+
+    with engine.connect() as conn:
+        conn.execute(sa.text(sql.SQL('''
+             CREATE USER {user_id} WITH PASSWORD 'password';
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             GRANT CONNECT ON DATABASE postgres TO {user_id};
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+            CREATE SCHEMA {schema} AUTHORIZATION {user_id};
+        ''').format(schema=sql.Identifier(schema_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+            GRANT USAGE ON schema my_schema TO {user_id};
+        ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+            GRANT SELECT ON my_schema.{table_name} TO {user_id};
+        ''').format(table_name=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.commit()
+
+    view_name = f"my_test_view_{table_name}"
+    with user_engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW {schema_name}.{view_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.commit()
+
+    with user_engine.connect() as conn:
+        view_results = conn.execute(sa.text(f'''
+            SELECT * FROM {schema_name}.{view_name} ORDER BY id
+        ''')).fetchall()
+        assert view_results == [(2, 'b')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (3, 'c', 'd')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with user_engine.connect() as conn:
+        view_results = conn.execute(sa.text(f'''
+            SELECT * FROM {schema_name}.{view_name} ORDER BY id
+        ''')).fetchall()
+        assert view_results == [(2, 'b'), (3, 'c')]
+
+
+def test_ingest_with_dependent_view_ownership_preserved_on_view() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata_1 = sa.MetaData()
+    table_name = "my_table_" + uuid.uuid4().hex
+    my_table_1 = sa.Table(
+        table_name,
+        metadata_1,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_1(_):
+        yield None, None, (
+            (my_table_1, (1, 'a')),
+            (my_table_1, (2, 'b')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_1, batches_1)
+
+    view_name = f"my_test_view_{table_name}"
+    with engine.connect() as conn:
+        conn.execute(sa.text(f'''
+            CREATE VIEW my_schema.{view_name} AS
+            SELECT id, value_1 FROM my_schema.{table_name} WHERE id > 1
+        '''))
+        conn.commit()
+
+    user_id = uuid.uuid4().hex[:16]
+    user_engine = sa.create_engine(f'{engine_type}://{user_id}:password@127.0.0.1:5432/postgres', **engine_future)
+
+    with engine.connect() as conn:
+        conn.execute(sa.text(sql.SQL('''
+             CREATE USER {user_id} WITH PASSWORD 'password';
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             GRANT CONNECT ON DATABASE postgres TO {user_id};
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             GRANT USAGE ON schema my_schema TO {user_id};
+        ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.execute(sa.text(sql.SQL('''
+             ALTER VIEW my_schema.{view_name} OWNER TO {user_id};
+        ''').format(view_name=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        conn.commit()
+
+    with user_engine.connect() as conn:
+        view_results = conn.execute(sa.text(f'''
+            SELECT * FROM my_schema.{view_name} ORDER BY id
+        ''')).fetchall()
+        assert view_results == [(2, 'b')]
+
+    metadata_2 = sa.MetaData()
+    my_table_2 = sa.Table(
+        table_name,
+        metadata_2,
+        sa.Column("id", sa.INTEGER, primary_key=True),
+        sa.Column("value_1", sa.VARCHAR),
+        sa.Column("value_2", sa.VARCHAR),
+        schema="my_schema",
+    )
+
+    def batches_2(_):
+        yield None, None, (
+            (my_table_2, (3, 'c', 'd')),
+        )
+    with engine.connect() as conn:
+        ingest(conn, metadata_2, batches_2)
+
+    with user_engine.connect() as conn:
+        # This would raise an exception if the user is not an owner of the view
+        conn.execute(sa.text(f'''
+            DROP VIEW my_schema.{view_name}
+        '''))
+
+
 def test_ingest_with_multiple_views_all_visible_together() -> None:
     '''Checks that all views on a table show consistent data, i.e. there are almost definitely
     no intermediate commits in the production code
