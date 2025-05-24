@@ -5,6 +5,7 @@ import threading
 from contextlib import contextmanager
 from datetime import date
 
+import pandas as pd
 import pytest
 import sqlalchemy as sa
 from to_file_like_obj import to_file_like_obj
@@ -1239,6 +1240,102 @@ def test_insert() -> None:
             None, None,
             (
                 (my_table, (2,)),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_2)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
+
+    assert results == [
+        (1,),
+        (2,),
+    ]
+
+    assert len(metadata.tables) == 1
+
+
+@pytest.mark.skipif(tuple(int(v) for v in sa.__version__.split('.'))[:3] < (2,0,31), reason="Pandas does not support SQLAlchemy < 2.0.31")
+def test_insert_pandas() -> None:
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        schema="my_schema",
+    )
+    df_1 = pd.DataFrame(data={'integer': [1,]})
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (lambda conn, schema_name, table_name: df_1.to_sql(table_name, conn, schema=schema_name, if_exists='append', index=False))),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    df_2 = pd.DataFrame(data={'integer': [2,]})
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (lambda conn, schema_name, table_name: df_2.to_sql(table_name, conn, schema=schema_name, if_exists='append', index=False))),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_2)
+
+    with engine.connect() as conn:
+        results = conn.execute(sa.select(my_table).order_by('integer')).fetchall()
+
+    assert results == [
+        (1,),
+        (2,),
+    ]
+
+    assert len(metadata.tables) == 1
+
+
+@pytest.mark.skipif(tuple(int(v) for v in sa.__version__.split('.'))[:3] < (2,0,0), reason="Polars does not support SQLAlchemy < 2.0.0")
+@pytest.mark.skipif(sys.version_info[:2] < (3,8,0), reason="Polars not available until Python 3.8")
+def test_insert_polars() -> None:
+    import polars as pl
+
+    engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
+
+    metadata = sa.MetaData()
+    my_table = sa.Table(
+        "my_table_" + uuid.uuid4().hex,
+        metadata,
+        sa.Column("integer", sa.INTEGER),
+        schema="my_schema",
+    )
+    df_1 = pl.DataFrame({'integer': [1,],})
+
+    batches_1 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (lambda conn, schema_name, table_name: df_1.write_database(f'"my_schema"."{table_name}"', conn, if_table_exists='append'))),
+            ),
+        ),
+    )
+    with engine.connect() as conn:
+        ingest(conn, metadata, batches_1)
+
+    df_2 = pl.DataFrame({'integer': [2,],})
+    batches_2 = lambda _: (
+        (
+            None, None,
+            (
+                (my_table, (lambda conn, schema_name, table_name: df_2.write_database(f'"my_schema"."{table_name}"', conn, if_table_exists='append'))),
             ),
         ),
     )
