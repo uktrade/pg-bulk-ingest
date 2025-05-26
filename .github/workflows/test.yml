@@ -98,6 +98,7 @@ jobs:
       - name: "Install package and python dependencies"
         run: |
           uv pip install --upgrade pip
+          CC=clang uv pip install setuptools
           CC=clang uv pip install .[ci,${{ matrix.ci-extras }}]
       - name: "Wait for PostgreSQL"
         run: "timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/5432; do sleep 5; done'"

@@ -1,4 +1,5 @@
 import uuid
+import itertools
 import logging
 import math
 import typing
@@ -341,14 +342,20 @@ def ingest(
             total = i + 1 if i is not None else 0
             logger.info("Ingested %s rows in total", total)
 
-        converters = tuple(get_converter(column.type) for column in batch_table.columns)
-        db_rows = logged(
-            '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
-            for row_table, row in rows
-            if row_table is user_facing_table
-        )
-        with conn.connection.driver_connection.cursor() as cursor:
-            copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
+        for rows_type, grouped_rows in itertools.groupby(rows, lambda row: 'callable' if callable(row[1]) else 'data'):
+            if rows_type == 'callable':
+                for row in grouped_rows:
+                    row[1](conn, batch_table.schema, batch_table.name)
+            else:
+                converters = tuple(get_converter(column.type) for column in batch_table.columns)
+                db_rows = logged(
+                    '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
+                    for row_table, row in grouped_rows
+                    if row_table is user_facing_table
+                )
+                with conn.connection.driver_connection.cursor() as cursor:
+                    copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
+
 
     sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
 
