@@ -9,21 +9,27 @@ import pytest
 import sqlalchemy as sa
 from to_file_like_obj import to_file_like_obj
 
-try:
-    # psycopg2
-    from psycopg2 import sql
-    engine_type = 'postgresql+psycopg2'
-except ImportError:
-    # psycopg3
-    from psycopg import sql
-    engine_type = 'postgresql+psycopg'
-
-engine_future = {'future': True} if tuple(int(v) for v in sa.__version__.split('.')) < (2, 0, 0) else {}
+from psycopg import sql as sql3
+from psycopg2 import sql as sql2
 
 from pg_bulk_ingest import Delete, ingest, Upsert
 
 
-def _get_table_oid(engine, table) -> int:
+sa_version =  tuple(int(v) for v in sa.__version__.split('.'))
+
+engine_future = {'future': True} if sa_version < (2, 0, 0) else {}
+
+parameterise_engine_type_sql = pytest.mark.parametrize(
+    'engine_type,sql', (
+        [('postgresql+psycopg2', sql2)]
+    ) + (
+        # psycopg3 is only supported by SQLAlchemy >= 2.0.0
+        [('postgresql+psycopg', sql3)] if sa_version >= (2, 0, 0) else []
+    ),
+)
+
+
+def _get_table_oid(sql, engine, table) -> int:
     with engine.connect() as conn:
         return conn.execute(sa.text(sql.SQL('''
              SELECT (quote_ident({schema}) || '.' || quote_ident({table}))::regclass::oid
@@ -37,7 +43,8 @@ def _no_batches(_) -> iter:
     yield from ()
 
 
-def test_data_types() -> None:
+@parameterise_engine_type_sql
+def test_data_types(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -75,7 +82,8 @@ def test_data_types() -> None:
     ]
 
 
-def test_large_amounts_of_data() -> None:
+@parameterise_engine_type_sql
+def test_large_amounts_of_data(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -104,7 +112,8 @@ def test_large_amounts_of_data() -> None:
     assert total_length == 1000 * 10000
 
 
-def test_unique_initial() -> None:
+@parameterise_engine_type_sql
+def test_unique_initial(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -128,7 +137,8 @@ def test_unique_initial() -> None:
             ingest(conn, metadata, batches)
 
 
-def test_unique_added() -> None:
+@parameterise_engine_type_sql
+def test_unique_added(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -169,7 +179,8 @@ def test_unique_added() -> None:
             ingest(conn, metadata, batches)
 
 
-def test_batches() -> None:
+@parameterise_engine_type_sql
+def test_batches(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -205,7 +216,8 @@ def test_batches() -> None:
     ]
 
 
-def test_if_no_batches_then_only_target_table_visible() -> None:
+@parameterise_engine_type_sql
+def test_if_no_batches_then_only_target_table_visible(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     with engine.connect() as conn:
         first_check = conn.execute(sa.text('''
@@ -238,7 +250,8 @@ def test_if_no_batches_then_only_target_table_visible() -> None:
     assert last_check == first_check + 1
 
 
-def test_batches_with_long_index_name() -> None:
+@parameterise_engine_type_sql
+def test_batches_with_long_index_name(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -273,17 +286,18 @@ def test_batches_with_long_index_name() -> None:
         (2,),
     ]
 
-    oid_1 = _get_table_oid(engine, my_table)
+    oid_1 = _get_table_oid(sql, engine, my_table)
 
     with engine.connect() as conn:
         ingest(conn, metadata, batches)
 
-    oid_2 = _get_table_oid(engine, my_table)
+    oid_2 = _get_table_oid(sql, engine, my_table)
 
     assert oid_1 == oid_2
 
 
-def test_batch_visible_only_after_batch_complete() -> None:
+@parameterise_engine_type_sql
+def test_batch_visible_only_after_batch_complete(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -369,7 +383,8 @@ def test_batch_visible_only_after_batch_complete() -> None:
     ]
 
 
-def test_upsert() -> None:
+@parameterise_engine_type_sql
+def test_upsert(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -394,7 +409,7 @@ def test_upsert() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    oid_1 = _get_table_oid(engine, my_table)
+    oid_1 = _get_table_oid(sql, engine, my_table)
 
     batches_2 = lambda _: (
         (
@@ -412,7 +427,7 @@ def test_upsert() -> None:
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id\"\'_2🍰')).fetchall()
 
-    oid_2 = _get_table_oid(engine, my_table)
+    oid_2 = _get_table_oid(sql, engine, my_table)
 
     assert results == [
         (1, 2, 'a', 'b'),
@@ -424,7 +439,8 @@ def test_upsert() -> None:
     assert len(metadata.tables) == 1
 
 
-def test_upsert_off() -> None:
+@parameterise_engine_type_sql
+def test_upsert_off(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -474,7 +490,8 @@ def test_upsert_off() -> None:
     assert len(metadata.tables) == 1
 
 
-def test_upsert_with_duplicates_in_batch() -> None:
+@parameterise_engine_type_sql
+def test_upsert_with_duplicates_in_batch(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -500,7 +517,7 @@ def test_upsert_with_duplicates_in_batch() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata, batches_1)
 
-    oid_1 = _get_table_oid(engine, my_table)
+    oid_1 = _get_table_oid(sql, engine, my_table)
 
     batches_2 = lambda _: (
         (
@@ -518,7 +535,7 @@ def test_upsert_with_duplicates_in_batch() -> None:
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table).order_by('id_1', 'id_2')).fetchall()
 
-    oid_2 = _get_table_oid(engine, my_table)
+    oid_2 = _get_table_oid(sql, engine, my_table)
 
     assert results == [
         (1, 2, 'a', 'c'),
@@ -530,7 +547,8 @@ def test_upsert_with_duplicates_in_batch() -> None:
     assert len(metadata.tables) == 1
 
 
-def test_high_watermark_is_preserved_between_ingests() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_is_preserved_between_ingests(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -569,7 +587,8 @@ def test_high_watermark_is_preserved_between_ingests() -> None:
     assert high_watermarks == [None, 3, 6]
 
 
-def test_high_watermark_is_preserved_between_ingests_no_primary_key() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_is_preserved_between_ingests_no_primary_key(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -608,7 +627,8 @@ def test_high_watermark_is_preserved_between_ingests_no_primary_key() -> None:
     assert high_watermarks == [None, 3, 6]
 
 
-def test_high_watermark_is_preserved_if_exception() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_is_preserved_if_exception(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -656,7 +676,8 @@ def test_high_watermark_is_preserved_if_exception() -> None:
     assert high_watermarks == [None, 3, 6, 7]
 
 
-def test_high_watermark_is_passed_into_the_batch_function() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_is_passed_into_the_batch_function(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -684,7 +705,8 @@ def test_high_watermark_is_passed_into_the_batch_function() -> None:
     assert high_watermarks == [10]
 
 
-def test_migrate_add_column_at_end() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_column_at_end(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -706,7 +728,7 @@ def test_migrate_add_column_at_end() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
-    oid_1 = _get_table_oid(engine, my_table_1)
+    oid_1 = _get_table_oid(sql, engine, my_table_1)
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -732,7 +754,7 @@ def test_migrate_add_column_at_end() -> None:
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
-    oid_2 = _get_table_oid(engine, my_table_2)
+    oid_2 = _get_table_oid(sql, engine, my_table_2)
 
     assert batch_2_result == [
         (1, 'a'),
@@ -747,7 +769,8 @@ def test_migrate_add_column_at_end() -> None:
     assert len(metadata_2.tables) == 1
 
 
-def test_table_with_multiple_similar_indexes() -> None:
+@parameterise_engine_type_sql
+def test_table_with_multiple_similar_indexes(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -772,7 +795,8 @@ def test_table_with_multiple_similar_indexes() -> None:
     assert results == []
 
 
-def test_migrate_add_index() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_index(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -792,7 +816,7 @@ def test_migrate_add_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches)
 
-    oid_1 = _get_table_oid(engine, my_table_1)
+    oid_1 = _get_table_oid(sql, engine, my_table_1)
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -808,7 +832,7 @@ def test_migrate_add_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches)
 
-    oid_2 = _get_table_oid(engine, my_table_2)
+    oid_2 = _get_table_oid(sql, engine, my_table_2)
 
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
@@ -839,7 +863,8 @@ def test_migrate_add_index() -> None:
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_gin_index() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_gin_index(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -860,7 +885,7 @@ def test_migrate_add_gin_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches)
 
-    oid_1 = _get_table_oid(engine, my_table_1)
+    oid_1 = _get_table_oid(sql, engine, my_table_1)
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -876,7 +901,7 @@ def test_migrate_add_gin_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches)
 
-    oid_2 = _get_table_oid(engine, my_table_2)
+    oid_2 = _get_table_oid(sql, engine, my_table_2)
 
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
@@ -897,7 +922,7 @@ def test_migrate_add_gin_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches)
 
-    oid_3 = _get_table_oid(engine, my_table_2)
+    oid_3 = _get_table_oid(sql, engine, my_table_2)
 
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
@@ -907,7 +932,8 @@ def test_migrate_add_gin_index() -> None:
     assert oid_2 == oid_3
 
 
-def test_migrate_remove_index() -> None:
+@parameterise_engine_type_sql
+def test_migrate_remove_index(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -927,7 +953,7 @@ def test_migrate_remove_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches)
 
-    oid_1 = _get_table_oid(engine, my_table_1)
+    oid_1 = _get_table_oid(sql, engine, my_table_1)
     with engine.connect() as conn:
         live_table = sa.Table(my_table_1.name, sa.MetaData(), schema=my_table_1.schema, autoload_with=conn)
     assert len(live_table.indexes) == 1
@@ -944,7 +970,7 @@ def test_migrate_remove_index() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_2, batches)
 
-    oid_2 = _get_table_oid(engine, my_table_2)
+    oid_2 = _get_table_oid(sql, engine, my_table_2)
 
     with engine.connect() as conn:
         live_table = sa.Table(my_table_2.name, sa.MetaData(), schema=my_table_2.schema, autoload_with=conn)
@@ -956,7 +982,8 @@ def test_migrate_remove_index() -> None:
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_column_not_at_end() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_column_not_at_end(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -979,7 +1006,7 @@ def test_migrate_add_column_not_at_end() -> None:
     with engine.connect() as conn:
         ingest(conn, metadata_1, batches_1)
 
-    oid_1 = _get_table_oid(engine, my_table_1)
+    oid_1 = _get_table_oid(sql, engine, my_table_1)
 
     metadata_2 = sa.MetaData()
     my_table_2 = sa.Table(
@@ -1006,7 +1033,7 @@ def test_migrate_add_column_not_at_end() -> None:
     with engine.connect() as conn:
         results = conn.execute(sa.select(my_table_2).order_by('id')).fetchall()
 
-    oid_2 = _get_table_oid(engine, my_table_2)
+    oid_2 = _get_table_oid(sql, engine, my_table_2)
 
     assert batch_2_result == [
         (1, 'a', 'b'),
@@ -1021,7 +1048,8 @@ def test_migrate_add_column_not_at_end() -> None:
     assert len(metadata_2.tables) == 1
 
 
-def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1071,7 +1099,8 @@ def test_migrate_add_column_not_at_end_batch_fails_high_watermark_preserved() ->
     assert high_watermarks == [None, 1, 1]
 
 
-def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_column_not_at_end_permissions_preserved(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1160,7 +1189,8 @@ def test_migrate_add_column_not_at_end_permissions_preserved() -> None:
         assert view_results == [(1, 'a', 'b')]
 
 
-def test_migrate_add_column_not_at_end_no_data() -> None:
+@parameterise_engine_type_sql
+def test_migrate_add_column_not_at_end_no_data(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1213,7 +1243,8 @@ def test_migrate_add_column_not_at_end_no_data() -> None:
     assert len(metadata_2.tables) == 1
 
 
-def test_insert() -> None:
+@parameterise_engine_type_sql
+def test_insert(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1256,7 +1287,8 @@ def test_insert() -> None:
     assert len(metadata.tables) == 1
 
 
-def test_delete() -> None:
+@parameterise_engine_type_sql
+def test_delete(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1308,7 +1340,8 @@ def test_delete() -> None:
     assert len(metadata.tables) == 1
 
 
-def test_on_before_batch_visible() -> None:
+@parameterise_engine_type_sql
+def test_on_before_batch_visible(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1359,7 +1392,8 @@ def test_on_before_batch_visible() -> None:
     assert batch_metadatas == ['Batch metadata 1', 'Batch metadata 2']
 
 
-def test_high_watermark_with_earliest() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_with_earliest(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1398,7 +1432,8 @@ def test_high_watermark_with_earliest() -> None:
     assert high_watermarks == [None, None, None]
 
 
-def test_high_watermark_callable() -> None:
+@parameterise_engine_type_sql
+def test_high_watermark_callable(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1430,7 +1465,8 @@ def test_high_watermark_callable() -> None:
     assert high_watermarks == [None, today]
 
 
-def test_multiple_tables() -> None:
+@parameterise_engine_type_sql
+def test_multiple_tables(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata = sa.MetaData()
@@ -1466,7 +1502,8 @@ def test_multiple_tables() -> None:
     assert results_b == [(i,) for i in range(0, 20000)]
 
 
-def test_multiple_tables_high_watermark() -> None:
+@parameterise_engine_type_sql
+def test_multiple_tables_high_watermark(engine_type, sql) -> None:
 
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -1582,9 +1619,10 @@ def test_streaming_behaviour_of_to_file_object() -> None:
     assert total_read == 1
 
 
+@parameterise_engine_type_sql
 @pytest.mark.skipif(sys.version_info[:2] < (3,8,0), reason="VECTOR type not available in pgvector.sqlalchemy")
 @pytest.mark.skipif(float(os.environ.get('PG_VERSION', '14.0')) < 14.0, reason="pgvector not available")
-def test_insert_vectors():
+def test_insert_vectors(engine_type, sql):
     from pgvector.sqlalchemy import VECTOR
 
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
@@ -1632,7 +1670,8 @@ def test_insert_vectors():
     assert len(metadata.tables) == 1
 
 
-def test_ingest_with_dependent_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_dependent_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1691,7 +1730,8 @@ def test_ingest_with_dependent_views() -> None:
         assert view_results == [(2, 'b'), (3, 'c')]
 
 
-def test_ingest_with_dependent_view_select_privileges_preserved_by_view_owner() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_dependent_view_select_privileges_preserved_by_view_owner(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1774,7 +1814,8 @@ def test_ingest_with_dependent_view_select_privileges_preserved_by_view_owner() 
         assert view_results == [(2, 'b'), (3, 'c')]
 
 
-def test_ingest_with_multiple_views_all_visible_together() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_multiple_views_all_visible_together(engine_type, sql) -> None:
     '''Checks that all views on a table show consistent data, i.e. there are almost definitely
     no intermediate commits in the production code
 
@@ -1899,7 +1940,8 @@ def test_ingest_with_multiple_views_all_visible_together() -> None:
     assert any_exception is None
 
 
-def test_ingest_with_multiple_dependent_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_multiple_dependent_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -1972,7 +2014,8 @@ def test_ingest_with_multiple_dependent_views() -> None:
         assert view2_results == [(1, 'a')]
 
 
-def test_ingest_with_cascading_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_cascading_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -2045,7 +2088,8 @@ def test_ingest_with_cascading_views() -> None:
         assert cascading_view_results == [(2, 'b')]
 
 
-def test_ingest_with_cyclic_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_cyclic_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -2130,7 +2174,8 @@ def test_ingest_with_cyclic_views() -> None:
     assert original_views == new_views
 
 
-def test_ingest_with_complex_view_cycle() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_complex_view_cycle(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()
@@ -2217,7 +2262,8 @@ def test_ingest_with_complex_view_cycle() -> None:
     assert original_views == new_views
 
 
-def test_ingest_with_complex_expression_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_complex_expression_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     table_name = "my_table_" + uuid.uuid4().hex
 
@@ -2343,7 +2389,8 @@ def test_ingest_with_complex_expression_views() -> None:
     assert original_views == new_views
 
 
-def test_ingest_with_materialized_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_materialized_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     table_name = "my_table_" + uuid.uuid4().hex
 
@@ -2456,7 +2503,8 @@ def test_ingest_with_materialized_views() -> None:
     assert original_mat_view == new_mat_view
 
 
-def test_ingest_with_chain_of_materialized_views() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_chain_of_materialized_views(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     table_name_root = "table_or_mat_view_" + uuid.uuid4().hex
 
@@ -2507,7 +2555,8 @@ def test_ingest_with_chain_of_materialized_views() -> None:
     assert results == [(5, 50, 'd')]
 
 
-def test_ingest_with_materialized_view_at_multiple_levels() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_materialized_view_at_multiple_levels(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     table_name = "table_" + uuid.uuid4().hex
 
@@ -2563,7 +2612,8 @@ def test_ingest_with_materialized_view_at_multiple_levels() -> None:
     assert results == [(5, 50, 'd'), (5, 50, 'd')]
 
 
-def test_ingest_with_views_and_wacky_identifiers() -> None:
+@parameterise_engine_type_sql
+def test_ingest_with_views_and_wacky_identifiers(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
     metadata_1 = sa.MetaData()

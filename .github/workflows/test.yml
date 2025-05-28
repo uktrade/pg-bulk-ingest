@@ -28,58 +28,9 @@ jobs:
           - "14.0"
           - "15.0"
           - "16.0"
-        # SqlAlchemy 1.4 doesn't support psycopg3, psycopg2 < 2.9.10, doesn't support Python 13,
-        # and SqlAlchemy 2 < 2.0.30 doesn't support Python 13
         ci-extras:
-          - ci-psycopg2-sqlalchemy1
-          - ci-psycopg2-sqlalchemy2
-          - ci-psycopg2-9-10-sqlalchemy1
-          - ci-psycopg2-9-10-sqlalchemy2-0-31
-          - ci-psycopg3-sqlalchemy2
-          - ci-psycopg3-sqlalchemy2-0-31
-        exclude:
-          - python-version: "3.7.7"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.7.7"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.7.7"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.8.2"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.8.2"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.8.2"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.9.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.9.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.9.0"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.10.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.10.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.10.0"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.11.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.11.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.11.0"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.12.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy1
-          - python-version: "3.12.0"
-            ci-extras: ci-psycopg2-9-10-sqlalchemy2-0-31
-          - python-version: "3.12.0"
-            ci-extras: ci-psycopg3-sqlalchemy2-0-31
-          - python-version: "3.13.0"
-            ci-extras: ci-psycopg2-sqlalchemy1
-          - python-version: "3.13.0"
-            ci-extras: ci-psycopg2-sqlalchemy2
-          - python-version: "3.13.0"
-            ci-extras: ci-psycopg3-sqlalchemy2
+          - ci-sqlalchemy1
+          - ci-sqlalchemy2
     steps:
       - name: "Checkout"
         uses: "actions/checkout@v4"
@@ -98,7 +49,7 @@ jobs:
       - name: "Install package and python dependencies"
         run: |
           uv pip install --upgrade pip
-          CC=clang uv pip install .[ci,${{ matrix.ci-extras }}]
+          CC=clang uv pip install .[dev,ci,${{ matrix.ci-extras }}]
       - name: "Wait for PostgreSQL"
         run: "timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/5432; do sleep 5; done'"
       - name: "Run Type Checking"
