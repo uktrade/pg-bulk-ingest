@@ -1447,10 +1447,19 @@ def test_multiple_tables() -> None:
         schema="my_schema",
     )
 
+    # Not in metadata passed to ingest, so should be skipped
+    table_3 = sa.Table(
+        "table_" + uuid.uuid4().hex,
+        sa.MetaData(),
+        sa.Column("id_1", sa.INTEGER, primary_key=True),
+        schema="my_schema",
+    )
+
     def batch():
         for i in range(0, 20000):
             yield table_1, (i,)
             yield table_2, (i,)
+            yield table_3, (i,)
 
     def batches(high_watermark):
         yield None, None, batch()
@@ -1464,6 +1473,10 @@ def test_multiple_tables() -> None:
 
     assert results_a == [(i,) for i in range(0, 20000)]
     assert results_b == [(i,) for i in range(0, 20000)]
+
+    with engine.connect() as conn:
+        with pytest.raises(Exception, match="does not exist"):
+            conn.execute(sa.select(table_3)).fetchall()
 
 
 def test_multiple_tables_high_watermark() -> None:
