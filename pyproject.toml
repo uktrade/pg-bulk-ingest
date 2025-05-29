@@ -24,50 +24,30 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "psycopg>=3.1.4",
-    "psycopg2>=2.9.2",
-    "pgvector>=0.1.8",
-    "pytest>=7.2.1",
-    # Type checking
-    "mypy <1.5",
-]
-ci = [
-    "pgvector",
+    # To run tests
     "pytest",
     "pytest-cov",
     "coverage",
-    # Type checking
-    "mypy <1.5",
+    # Used directly in tests
+    "psycopg>=3.1.4",
+    "psycopg2>=2.9.2",
+    "pgvector>=0.1.8",
+    # To run type checking
+    "mypy<1.5",
 ]
-ci-psycopg2-sqlalchemy1 = [
-    "psycopg2==2.9.2",
-    "sqlalchemy==1.4.24",
+ci = [
     "to-file-like-obj==0.0.5",
-]
-ci-psycopg2-sqlalchemy2 = [
-    "psycopg2==2.9.2",
-    "sqlalchemy==2.0.0",
-    "to-file-like-obj==0.0.5",
-]
-ci-psycopg2-9-10-sqlalchemy1 = [
-    "psycopg2==2.9.10",
-    "sqlalchemy==1.4.24",
-    "to-file-like-obj==0.0.5",
-]
-ci-psycopg3-sqlalchemy2 = [
+    "pg-force-execute==0.0.10",
+    "psycopg2==2.9.2;python_version<'3.13'",
+    "psycopg2==2.9.10;python_version>='3.13'",
     "psycopg==3.1.4",
-    "sqlalchemy==2.0.0",
-    "to-file-like-obj==0.0.5",
 ]
-ci-psycopg2-9-10-sqlalchemy2-0-31 = [
-    "psycopg2==2.9.10",
-    "sqlalchemy==2.0.31",
-    "to-file-like-obj==0.0.5",
+ci-sqlalchemy1 = [
+    "sqlalchemy==1.4.24",
 ]
-ci-psycopg3-sqlalchemy2-0-31 = [
-    "psycopg==3.1.4",
-    "sqlalchemy==2.0.31",
-    "to-file-like-obj==0.0.5",
+ci-sqlalchemy2 = [
+    "sqlalchemy==2.0.0;python_version<'3.13'",
+    "sqlalchemy==2.0.31;python_version>='3.13'",
 ]
 
 [project.urls]
