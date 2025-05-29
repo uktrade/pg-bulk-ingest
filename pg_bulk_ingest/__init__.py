@@ -233,17 +233,24 @@ def ingest(
 
         batch_iter = iter(batch)
 
+        def next_skipping_tables_to_not_ingest(batch_iter):
+            while True:
+                table, row = next(batch_iter)
+                if table not in live_tables:
+                    continue
+                return table, row
+
         def batch_for_current_table_until_a_queue_full() -> typing.Generator[typing.Any, None, None]:
             nonlocal current_queue, current_table
 
             while current_queue:
                 table, row = current_queue.popleft()
                 ingested_tables.add(table)
-                yield table, row
+                yield row
 
             while True:
                 try:
-                    table, row = next(batch_iter)
+                    table, row = next_skipping_tables_to_not_ingest(batch_iter)
                 except StopIteration:
                     current_queue = None
                     current_table = None
@@ -251,7 +258,7 @@ def ingest(
 
                 if table is current_table:
                     ingested_tables.add(table)
-                    yield table, row
+                    yield row
                 else:
                     queue = queues[table]
                     queue.append((table, row))
@@ -262,7 +269,7 @@ def ingest(
 
         # Bootstrap, choosing the first table from the first row
         try:
-            table, row = next(batch_iter)
+            table, row = next_skipping_tables_to_not_ingest(batch_iter)
         except StopIteration:
             pass
         else:
@@ -344,8 +351,7 @@ def ingest(
         converters = tuple(get_converter(column.type) for column in batch_table.columns)
         db_rows = logged(
             '\t'.join(converter(value) for (converter,value) in zip(converters, row)) + '\n'
-            for row_table, row in rows
-            if row_table is user_facing_table
+            for row in rows
         )
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
