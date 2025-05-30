@@ -5,6 +5,7 @@ import typing
 import types
 from collections import deque, defaultdict
 from contextlib import contextmanager
+from functools import partial
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import BYTEA
@@ -13,9 +14,8 @@ import json
 from pg_force_execute import pg_force_execute
 from to_file_like_obj import to_file_like_obj
 
-# Declare sql2 and sql3 with initial None values and explicit type annotations
-sql2: typing.Optional[types.ModuleType] = None
-sql3: typing.Optional[types.ModuleType] = None
+sql2: types.ModuleType
+sql3: types.ModuleType
 
 try:
     from psycopg2 import sql as sql2_module
@@ -59,26 +59,6 @@ def ingest(
 
     def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
-
-    def sql_and_copy_from_stdin(driver: str) -> typing.Tuple[typing.Any, typing.Callable[[typing.Any, typing.Any, typing.Any], None]]:
-        # Supporting both psycopg2 and Psycopg 3. Psycopg 3 has a nicer
-        # COPY ... FROM STDIN API via write_row that handles escaping,
-        # but for consistency with Psycopg 2 we don't use it
-        def copy_from_stdin2(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
-            cursor.copy_expert(query, f, size=65536)
-
-        def copy_from_stdin3(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
-            with cursor.copy(query) as copy:
-                while True:
-                    chunk = f.read(65536)
-                    if not chunk:
-                        break
-                    copy.write(chunk)
-
-        return {
-            'psycopg2': (sql2, copy_from_stdin2),
-            'psycopg': (sql3, copy_from_stdin3),
-        }[driver]
 
     def bind_identifiers(sql: typing.Any, conn: typing.Any, query_str: str, *identifiers: typing.Optional[str]) -> sa.sql.elements.TextClause:
         return sa.text(sql.SQL(query_str).format(
@@ -291,7 +271,18 @@ def ingest(
         for table in (set(live_tables.keys()) - ingested_tables):
             yield table, live_tables[table], ()
 
-    def csv_copy(sql: typing.Any, copy_from_stdin: typing.Any, conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any) -> None:
+    def copy_from_stdin2(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
+        cursor.copy_expert(query, f, size=65536)
+
+    def copy_from_stdin3(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
+        with cursor.copy(query) as copy:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                copy.write(chunk)
+
+    def insert_rows_psycopg(copy_from_stdin: typing.Any, sql: typing.Any, conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any) -> None:
 
         def get_converter(sa_type: typing.Any) -> typing.Callable[[typing.Any], str]:
 
@@ -356,7 +347,10 @@ def ingest(
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
 
-    sql, copy_from_stdin = sql_and_copy_from_stdin(conn.engine.driver)
+    sql, insert_rows = {
+        **({'psycopg2': (sql2, partial(insert_rows_psycopg, copy_from_stdin2))} if sql2 is not None else {}),
+        **({'psycopg': (sql3, partial(insert_rows_psycopg,  copy_from_stdin3))} if sql3 is not None else {}),
+    }[conn.engine.driver]
 
     conn.begin()
 
@@ -441,7 +435,7 @@ def ingest(
             is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
             if not is_upsert:
                 logger.info('Ingesting without upsert')
-                csv_copy(sql, copy_from_stdin, conn, target_table, ingest_table, table_batch)
+                insert_rows(sql, conn, target_table, ingest_table, table_batch)
             else:
                 logger.info('Ingesting with upsert')
                 # Create a batch table, and ingest into it
@@ -457,7 +451,7 @@ def ingest(
                     schema=ingest_table.schema
                 )
                 batch_db_metadata.create_all(conn)
-                csv_copy(sql, copy_from_stdin, conn, target_table, batch_table, table_batch)
+                insert_rows(sql, conn, target_table, batch_table, table_batch)
                 logger.info('Ingestion into batch table complete')
 
                 # check and remove any duplicates in the batch
