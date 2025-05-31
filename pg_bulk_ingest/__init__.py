@@ -60,27 +60,27 @@ def ingest(
     def temp_relation_name() -> str:
         return f"_tmp_{uuid.uuid4().hex}"
 
-    def bind_identifiers(sql: typing.Any, conn: typing.Any, query_str: str, *identifiers: typing.Optional[str]) -> sa.sql.elements.TextClause:
-        return sa.text(sql.SQL(query_str).format(
+    def bind_identifiers(query_str: str, *identifiers: typing.Optional[str]) -> sa.sql.elements.TextClause:
+        return sa.text(as_string(sql.SQL(query_str).format(
             *(sql.Identifier(identifier) for identifier in identifiers)
-        ).as_string(conn.connection.driver_connection))
+        )))
 
-    def save_comment(sql: typing.Any, conn: typing.Any, schema: typing.Any, table: sa.Table, comment: str) -> None:
-        conn.execute(sa.text(sql.SQL('''
+    def save_comment(schema: typing.Any, table: sa.Table, comment: str) -> None:
+        conn.execute(sa.text(as_string(sql.SQL('''
              COMMENT ON TABLE {schema}.{table} IS {comment}
         ''').format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table),
             comment=sql.Literal(comment),
-        ).as_string(conn.connection.driver_connection)))
+        ))))
 
-    def get_dependent_views(sql: typing.Any, conn: typing.Any, schema: str, table: str) -> typing.List[typing.Dict[str, str]]:
+    def get_dependent_views(schema: str, table: str) -> typing.List[typing.Dict[str, str]]:
         query = sql.SQL(_VIEWS_SQL).format(
             schema=sql.Literal(schema),
             table=sql.Literal(table)
         )
 
-        results = conn.execute(sa.text(query.as_string(conn.connection.driver_connection))).fetchall()
+        results = conn.execute(sa.text(as_string(query))).fetchall()
         return [
             {
                 'fully_qualified_name': fully_qualified_name,
@@ -94,7 +94,7 @@ def ingest(
             for fully_qualified_name, column_names, null_typed_columns, definition, is_materialized, quoted_grantees in results
         ]
 
-    def drop_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
+    def drop_views(views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
             view_type = "MATERIALIZED VIEW" if view["is_materialized"] else "VIEW"
             logger.info("Dropping %s %s", view_type, view["fully_qualified_name"])
@@ -104,9 +104,9 @@ def ingest(
                 view_type=sql.SQL(view_type),
                 fully_qualified_name=sql.SQL(view["fully_qualified_name"])
             )
-            conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
+            conn.execute(sa.text(as_string(query)))
 
-    def recreate_views(sql: typing.Any, conn: typing.Any, views: typing.List[typing.Dict[str, str]]) -> None:
+    def recreate_views(views: typing.List[typing.Dict[str, str]]) -> None:
         for view in views:
             if not view["is_materialized"]:
                 logger.info("Recreating dummy view %s", view['fully_qualified_name'])
@@ -118,7 +118,7 @@ def ingest(
                     columns=sql.SQL(view['column_names']),
                     null_columns=sql.SQL(view['null_typed_columns'])
                 )
-                conn.execute(sa.text(query.as_string(conn.connection.driver_connection)))
+                conn.execute(sa.text(as_string(query)))
 
         for view in views:
             if view["is_materialized"]:
@@ -131,15 +131,13 @@ def ingest(
 
             if view['quoted_grantees']:
                 logger.info('Granting SELECT on %s to %s', view['fully_qualified_name'], view['quoted_grantees'])
-                conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
+                conn.execute(sa.text(as_string(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
                     .format(
                         schema_table=sql.SQL(view['fully_qualified_name']),
                         users=sql.SQL(view['quoted_grantees']),
-                    )
-                    .as_string(conn.connection.driver_connection))
-                )
+                    ))))
 
-    def create_first_batch_ingest_table_if_necessary(sql: typing.Any, conn: typing.Any, live_table: sa.Table, target_table: sa.Table) -> sa.Table:
+    def create_first_batch_ingest_table_if_necessary(live_table: sa.Table, target_table: sa.Table) -> sa.Table:
         must_create_ingest_table = False
 
         if delete == Delete.BEFORE_FIRST_BATCH:
@@ -271,6 +269,9 @@ def ingest(
         for table in (set(live_tables.keys()) - ingested_tables):
             yield table, live_tables[table], ()
 
+    def as_string_psycopg(driver_connection: typing.Any, query: typing.Any):
+        return query.as_string(driver_connection)
+
     def copy_from_stdin2(cursor: typing.Any, query: typing.Any, f: typing.Any) -> None:
         cursor.copy_expert(query, f, size=65536)
 
@@ -282,7 +283,7 @@ def ingest(
                     break
                 copy.write(chunk)
 
-    def insert_rows_psycopg(copy_from_stdin: typing.Any, sql: typing.Any, conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any) -> None:
+    def insert_rows_psycopg(copy_from_stdin: typing.Any, conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any) -> None:
 
         def get_converter(sa_type: typing.Any) -> typing.Callable[[typing.Any], str]:
 
@@ -345,11 +346,17 @@ def ingest(
             for row in rows
         )
         with conn.connection.driver_connection.cursor() as cursor:
-            copy_from_stdin(cursor, str(bind_identifiers(sql, conn, "COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
+            copy_from_stdin(cursor, str(bind_identifiers("COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
 
-    sql, insert_rows = {
-        **({'psycopg2': (sql2, partial(insert_rows_psycopg, copy_from_stdin2))} if sql2 is not None else {}),
-        **({'psycopg': (sql3, partial(insert_rows_psycopg,  copy_from_stdin3))} if sql3 is not None else {}),
+    sql, as_string, insert_rows = {
+        **({'psycopg2': (
+            sql2,
+            partial(as_string_psycopg, conn.connection.driver_connection),
+            partial(insert_rows_psycopg, copy_from_stdin2))} if sql2 is not None else {}),
+        **({'psycopg': (
+            sql3,
+            partial(as_string_psycopg, conn.connection.driver_connection),
+            partial(insert_rows_psycopg,  copy_from_stdin3))} if sql3 is not None else {}),
     }[conn.engine.driver]
 
     conn.begin()
@@ -381,12 +388,12 @@ def ingest(
     }
 
     logger.info('Finding high-watermark of %s', str(target_tables[0].name))
-    comment = conn.execute(sa.text(sql.SQL('''
+    comment = conn.execute(sa.text(as_string(sql.SQL('''
          SELECT obj_description((quote_ident({schema}) || '.' || quote_ident({table}))::regclass, 'pg_class')
     ''').format(
         schema=sql.Literal(target_tables[0].schema),
         table=sql.Literal(target_tables[0].name),
-    ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
+    )))).fetchall()[0][0]
     try:
         comment_parsed = json.loads(comment)
     except (TypeError, ValueError):
@@ -414,7 +421,7 @@ def ingest(
                 # The first time we ingest into a table, we might need to create a new table, and maybe copy
                 # existing data into this new table. But only the first time, so we maintain a bit of state
                 # to avoid doing it again
-                ingest_table = create_first_batch_ingest_table_if_necessary(sql, conn, live_table, target_table)
+                ingest_table = create_first_batch_ingest_table_if_necessary(live_table, target_table)
 
                 if ingest_table is not target_table and delete == Delete.OFF:
                     target_table_column_names = tuple(col.name for col in target_table.columns)
@@ -435,7 +442,7 @@ def ingest(
             is_upsert = upsert == Upsert.IF_PRIMARY_KEY and any(column.primary_key for column in target_table.columns.values())
             if not is_upsert:
                 logger.info('Ingesting without upsert')
-                insert_rows(sql, conn, target_table, ingest_table, table_batch)
+                insert_rows(conn, target_table, ingest_table, table_batch)
             else:
                 logger.info('Ingesting with upsert')
                 # Create a batch table, and ingest into it
@@ -451,7 +458,7 @@ def ingest(
                     schema=ingest_table.schema
                 )
                 batch_db_metadata.create_all(conn)
-                insert_rows(sql, conn, target_table, batch_table, table_batch)
+                insert_rows(conn, target_table, batch_table, table_batch)
                 logger.info('Ingestion into batch table complete')
 
                 # check and remove any duplicates in the batch
@@ -470,7 +477,7 @@ def ingest(
                     pk_columns=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
                     clause=sql.SQL(' and ').join((sql.SQL('a.{} = b.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns if column.primary_key))
                 )
-                conn.execute(sa.text(dedup_query.as_string(conn.connection.driver_connection)))
+                conn.execute(sa.text(as_string(dedup_query)))
                 logger.info('Deduplicating batch table complete')
 
                 # Copy from that batch table into the target table, using
@@ -488,7 +495,7 @@ def ingest(
                     primary_keys=sql.SQL(',').join((sql.Identifier(column.name) for column in ingest_table.columns if column.primary_key)),
                     updates=sql.SQL(',').join(sql.SQL('{} = EXCLUDED.{}').format(sql.Identifier(column.name), sql.Identifier(column.name)) for column in ingest_table.columns),
                 )
-                conn.execute(sa.text(insert_query.as_string(conn.connection.driver_connection)))
+                conn.execute(sa.text(as_string(insert_query)))
                 logger.info('Copying from batch table to target table complete')
 
                 # Drop the batch table
@@ -509,25 +516,22 @@ def ingest(
 
             if ingest_table is not target_table:
                 logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
-                grantees = conn.execute(sa.text(sql.SQL('''
+                grantees = conn.execute(sa.text(as_string(sql.SQL('''
                     SELECT acl.grantee::regrole AS quoted_grantee
                     FROM pg_class c, aclexplode(relacl) acl
                     WHERE c.oid = (quote_ident({schema}) || '.' || quote_ident({table}))::regclass
                     AND acl.privilege_type = 'SELECT'
-                ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name))
-                    .as_string(conn.connection.driver_connection)
+                ''').format(schema=sql.Literal(target_table.schema), table=sql.Literal(target_table.name)))
                 )).fetchall()
                 if grantees:
-                    conn.execute(sa.text(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
+                    conn.execute(sa.text(as_string(sql.SQL('GRANT SELECT ON {schema_table} TO {users}')
                         .format(
                             schema_table=sql.Identifier(ingest_table.schema, ingest_table.name),
                             users=sql.SQL(',').join(
                                 sql.SQL(grantee.quoted_grantee)
                                 for grantee in grantees
                             ),
-                        )
-                        .as_string(conn.connection.driver_connection))
-                    )
+                        ))))
 
         for ingest_table in batch_ingest_tables.values():
             logger.info('Calling on_before_visible callback')
@@ -538,8 +542,8 @@ def ingest(
         for target_table, ingest_table in batch_ingest_tables.items():
             if ingest_table is not target_table:
                 with get_pg_force_execute(conn, logger):
-                    dependent_views = get_dependent_views(sql, conn, target_table.schema, target_table.name)
-                    drop_views(sql, conn, dependent_views)
+                    dependent_views = get_dependent_views(target_table.schema, target_table.name)
+                    drop_views(dependent_views)
                     target_table.drop(conn)
                     rename_query = sql.SQL('''
                         ALTER TABLE {schema}.{ingest_table}
@@ -549,15 +553,15 @@ def ingest(
                         ingest_table=sql.Identifier(ingest_table.name),
                         target_table=sql.Identifier(target_table.name),
                     )
-                    conn.execute(sa.text(rename_query.as_string(conn.connection.driver_connection)))
-                    recreate_views(sql, conn, dependent_views)
+                    conn.execute(sa.text(as_string(rename_query)))
+                    recreate_views(dependent_views)
 
         if callable(high_watermark_value):
             high_watermark_value = high_watermark_value()
 
         comment_parsed['pg-bulk-ingest'] = comment_parsed.get('pg-bulk-ingest', {})
         comment_parsed['pg-bulk-ingest']['high-watermark'] = high_watermark_value
-        save_comment(sql, conn, target_tables[0].schema, target_tables[0].name, json.dumps(comment_parsed))
+        save_comment(target_tables[0].schema, target_tables[0].name, json.dumps(comment_parsed))
 
         conn.commit()
         logger.info('Ingestion of batch %s with high watermark value %s complete', batch_metadata, high_watermark_value)
