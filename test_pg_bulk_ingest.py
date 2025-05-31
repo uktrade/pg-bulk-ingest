@@ -14,18 +14,24 @@ from psycopg2 import sql as sql2
 
 from pg_bulk_ingest import Delete, ingest, Upsert
 
+try:
+    import pgarrow
+except ImportError:
+    pgarrow = None
 
 sa_version =  tuple(int(v) for v in sa.__version__.split('.'))
 
 engine_future = {'future': True} if sa_version < (2, 0, 0) else {}
 
 parameterise_engine_type_sql = pytest.mark.parametrize(
-    'engine_type,sql', (
-        [('postgresql+psycopg2', sql2)]
-    ) + (
+    'engine_type,sql', [
+        ('postgresql+psycopg2', sql2),
+    ] + (
         # psycopg3 is only supported by SQLAlchemy >= 2.0.0
         [('postgresql+psycopg', sql3)] if sa_version >= (2, 0, 0) else []
-    ),
+    ) + (
+        [('postgresql+pgarrow', sql3)] if pgarrow is not None else []
+    )
 )
 
 
@@ -36,7 +42,7 @@ def _get_table_oid(sql, engine, table) -> int:
         ''').format(
             schema=sql.Literal(table.schema),
             table=sql.Literal(table.name),
-        ).as_string(conn.connection.driver_connection))).fetchall()[0][0]
+        ).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None))).fetchall()[0][0]
 
 
 def _no_batches(_) -> iter:
@@ -221,7 +227,7 @@ def test_if_no_batches_then_only_target_table_visible(engine_type, sql) -> None:
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
     with engine.connect() as conn:
         first_check = conn.execute(sa.text('''
-            SELECT count(*) FROM pg_class;
+            SELECT count(*) FROM pg_class
         ''')).fetchall()[0][0]
 
     metadata = sa.MetaData()
@@ -240,7 +246,7 @@ def test_if_no_batches_then_only_target_table_visible(engine_type, sql) -> None:
         number_of_rows = len(conn.execute(sa.select(my_table)).fetchall())
 
         last_check = conn.execute(sa.text('''
-            SELECT count(*) FROM pg_class;
+            SELECT count(*) FROM pg_class
         ''')).fetchall()[0][0]
 
     # The table must exist to have gotten this
@@ -1137,16 +1143,16 @@ def test_migrate_add_column_not_at_end_permissions_preserved(engine_type, sql) -
         for user_id in user_ids:
             conn.execute(sa.text(sql.SQL('''
                  CREATE USER {user_id} WITH PASSWORD 'password';
-            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
             conn.execute(sa.text(sql.SQL('''
                  GRANT CONNECT ON DATABASE postgres TO {user_id};
-            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
             conn.execute(sa.text(sql.SQL('''
                  GRANT SELECT ON my_schema.{table} TO {user_id};
-            ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
             conn.execute(sa.text(sql.SQL('''
                  GRANT SELECT ON my_schema.{view} TO {user_id};
-            ''').format(view=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            ''').format(view=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
             conn.commit()
 
     metadata_2 = sa.MetaData()
@@ -1175,7 +1181,7 @@ def test_migrate_add_column_not_at_end_permissions_preserved(engine_type, sql) -
         for user_id in user_ids:
             conn.execute(sa.text(sql.SQL('''
                  GRANT USAGE ON SCHEMA my_schema TO {user_id};
-            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+            ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
             conn.commit()
 
     for user_engine in user_engines:
@@ -1631,12 +1637,14 @@ def test_streaming_behaviour_of_to_file_object() -> None:
     f.read(1)
     assert total_read == 1
 
-
 @parameterise_engine_type_sql
 @pytest.mark.skipif(sys.version_info[:2] < (3,8,0), reason="VECTOR type not available in pgvector.sqlalchemy")
 @pytest.mark.skipif(float(os.environ.get('PG_VERSION', '14.0')) < 14.0, reason="pgvector not available")
 def test_insert_vectors(engine_type, sql):
     from pgvector.sqlalchemy import VECTOR
+
+    if engine_type == 'postgresql+pgarrow':
+        return pytest.skip("pgarrow doesn't yet support VECTOR")
 
     engine = sa.create_engine(f'{engine_type}://postgres@127.0.0.1:5432/', **engine_future)
 
@@ -1779,21 +1787,21 @@ def test_ingest_with_dependent_view_select_privileges_preserved_by_view_owner(en
     with engine.connect() as conn:
         conn.execute(sa.text(sql.SQL('''
              CREATE USER {user_id} WITH PASSWORD 'password';
-        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
         conn.execute(sa.text(sql.SQL('''
              GRANT CONNECT ON DATABASE postgres TO {user_id};
-        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        ''').format(user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
         conn.execute(sa.text(sql.SQL('''
              GRANT USAGE ON schema my_schema TO {user_id};
-        ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        ''').format(table=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
         conn.execute(sa.text(sql.SQL('''
              ALTER VIEW my_schema.{view_name} OWNER TO {user_id};
-        ''').format(view_name=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        ''').format(view_name=sql.Identifier(view_name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
         # The owner of the view has to have permissions on the tables it queries for SELECTs on it
         # to work
         conn.execute(sa.text(sql.SQL('''
              GRANT SELECT ON my_schema.{table_name}  TO {user_id};
-        ''').format(table_name=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection)))
+        ''').format(table_name=sql.Identifier(my_table_1.name), user_id=sql.Identifier(user_id)).as_string(conn.connection.driver_connection if engine.dialect.driver != 'pgarrow' else None)))
 
         conn.commit()
 

@@ -29,8 +29,37 @@ jobs:
           - "15.0"
           - "16.0"
         ci-extras:
-          - ci-sqlalchemy1
-          - ci-sqlalchemy2
+          - ci-sqlalchemy1-without-pg-arrow
+          - ci-sqlalchemy1-with-pg-arrow
+          - ci-sqlalchemy2-without-pg-arrow
+          - ci-sqlalchemy2-with-pg-arrow
+        exclude:
+          # adbc-driver-postgresql 1.6.0 supports Python 3.9.0 onwards
+          - python-version: "3.7.7"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - python-version: "3.7.7"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
+          - python-version: "3.8.2"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - python-version: "3.8.2"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
+          # ROLLBACK AND CHAIN is used by ADBC but not supported until PostgreSQL 13.0
+          - postgresql-version: "9.6"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - postgresql-version: "9.6"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
+          - postgresql-version: "10.0"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - postgresql-version: "10.0"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
+          - postgresql-version: "11.0"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - postgresql-version: "11.0"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
+          - postgresql-version: "12.0"
+            ci-extras: ci-sqlalchemy1-with-pg-arrow
+          - postgresql-version: "12.0"
+            ci-extras: ci-sqlalchemy2-with-pg-arrow
     steps:
       - name: "Checkout"
         uses: "actions/checkout@v4"
