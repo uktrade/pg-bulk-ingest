@@ -6,6 +6,7 @@ import types
 from collections import deque, defaultdict
 from contextlib import contextmanager
 from functools import partial
+from itertools import islice
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import BYTEA
@@ -16,6 +17,8 @@ from to_file_like_obj import to_file_like_obj
 
 sql2: types.ModuleType
 sql3: types.ModuleType
+pa: types.ModuleType
+pgarrow: types.ModuleType
 
 try:
     from psycopg2 import sql as sql2_module
@@ -26,6 +29,18 @@ except ImportError:
 try:
     from psycopg import sql as sql3_module
     sql3 = sql3_module
+except ImportError:
+    pass
+
+try:
+    import pyarrow as pa_module
+    pa = pa_module
+except ImportError:
+    pass
+
+try:
+    import pgarrow as pgarrow_module
+    pgarrow = pgarrow_module
 except ImportError:
     pass
 
@@ -348,16 +363,55 @@ def ingest(
         with conn.connection.driver_connection.cursor() as cursor:
             copy_from_stdin(cursor, str(bind_identifiers("COPY {}.{} FROM STDIN", batch_table.schema, batch_table.name)), to_file_like_obj(db_rows, str))
 
-    sql, as_string, insert_rows = {
+    def insert_rows_pgarrow(conn: typing.Any, user_facing_table: sa.Table, batch_table: sa.Table, rows: typing.Any):
+
+        def batched_rows():
+            it = iter(rows)
+            while True:
+                batch = tuple(islice(it, max_rows_per_table_buffer))
+                if not batch:
+                    return
+                yield batch
+
+        arrow_schema = conn.connection.driver_connection.adbc_get_table_schema(batch_table.name, db_schema_filter=batch_table.schema)
+        arrow_batches = (
+            pa.RecordBatch.from_pylist([
+                {
+                    arrow_schema.names[i]: (
+                        # JSON and JSONB both need us to do the encoding, and JSONB requires a version number
+                        b'\x01' + json.dumps(v).encode() if isinstance(batch_table.columns[i].type, sa.dialects.postgresql.JSONB) else
+                        json.dumps(v).encode() if isinstance(batch_table.columns[i].type, sa.JSON) else
+                        v
+                    )
+                    for i, v in enumerate(row)
+                }
+                for row in row_batch
+            ], schema=arrow_schema)
+            for row_batch in batched_rows()
+        )
+
+        with conn.connection.driver_connection.cursor() as cursor:
+            cursor.adbc_ingest(
+                batch_table.name,
+                pa.RecordBatchReader.from_batches(arrow_schema, arrow_batches),
+                db_schema_name=batch_table.schema, mode="append"
+            )
+
+    dialects:typing.Dict = {
         **({'psycopg2': (
             sql2,
             partial(as_string_psycopg, conn.connection.driver_connection),
-            partial(insert_rows_psycopg, copy_from_stdin2))} if sql2 is not None else {}),
+            partial(insert_rows_psycopg, copy_from_stdin2))} if 'sql2' in globals() else {}),
         **({'psycopg': (
             sql3,
             partial(as_string_psycopg, conn.connection.driver_connection),
-            partial(insert_rows_psycopg,  copy_from_stdin3))} if sql3 is not None else {}),
-    }[conn.engine.driver]
+            partial(insert_rows_psycopg,  copy_from_stdin3))} if 'sql3' in globals() else {}),
+        **({"pgarrow": (
+            sql3,
+            partial(as_string_psycopg, None),
+            insert_rows_pgarrow)} if 'pgarrow' in globals() and 'pa' in globals() and 'sql3' in globals() else {}),
+    }
+    sql, as_string, insert_rows = dialects[conn.engine.driver]
 
     conn.begin()
 
@@ -517,7 +571,7 @@ def ingest(
             if ingest_table is not target_table:
                 logger.info("Copying privileges for %s.%s", str(target_table.schema), str(target_table.name))
                 grantees = conn.execute(sa.text(as_string(sql.SQL('''
-                    SELECT acl.grantee::regrole AS quoted_grantee
+                    SELECT acl.grantee::regrole::text AS quoted_grantee
                     FROM pg_class c, aclexplode(relacl) acl
                     WHERE c.oid = (quote_ident({schema}) || '.' || quote_ident({table}))::regclass
                     AND acl.privilege_type = 'SELECT'
